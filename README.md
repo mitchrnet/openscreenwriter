@@ -31,8 +31,6 @@ A minimalist Electron app for writing screenplays in [Fountain](https://fountain
 
 Pre-built Windows installer available from [**GitHub Releases**](https://github.com/mitchrnet/openscreenwriter/releases).
 
-> **Note:** A `build/icon.ico` (256×256) is required before running `npm run dist`. See [Building from source](#building-from-source).
-
 ---
 
 ## Keyboard Shortcuts
@@ -92,8 +90,7 @@ npm start
 
 **Packaging (Windows installer):**
 
-1. Place a 256×256 `.ico` file at `build/icon.ico`
-2. Run:
+Run:
 
 ```bash
 npm run dist
