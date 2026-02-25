@@ -1,0 +1,25 @@
+appId: com.mitchrnet.openscreenwriter
+productName: OpenScreenwriter
+copyright: "© 2026 Mitchell Reid"
+
+directories:
+  output: dist
+
+files:
+  - "**/*"
+  - "!renderer/editor/index.js"
+  - "!**/*.bak"
+  - "!**/node_modules/.cache/**"
+  - "!.claude{,/**/*}"
+
+win:
+  icon: build/icon.ico
+  target: nsis
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico

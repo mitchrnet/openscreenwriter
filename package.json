@@ -1,0 +1,33 @@
+{
+  "name": "openscreenwriter",
+  "version": "1.0.0",
+  "description": "Minimalist Fountain screenplay editor with FDX export",
+  "main": "main.js",
+  "author": "Mitchell Reid",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mitchrnet/openscreenwriter.git"
+  },
+  "homepage": "https://github.com/mitchrnet/openscreenwriter",
+  "scripts": {
+    "build": "esbuild renderer/editor/index.js --bundle --outfile=renderer/editor.bundle.js --format=esm --platform=browser",
+    "start": "npm run build && electron .",
+    "dist": "npm run build && electron-builder",
+    "dist:dir": "npm run build && electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^25.0.0",
+    "esbuild": "^0.27.3",
+    "prosemirror-commands": "^1.7.1",
+    "prosemirror-history": "^1.5.0",
+    "prosemirror-inputrules": "^1.5.1",
+    "prosemirror-keymap": "^1.2.3",
+    "prosemirror-model": "^1.25.4",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-transform": "^1.11.0",
+    "prosemirror-view": "^1.41.6"
+  },
+  "dependencies": {}
+}
