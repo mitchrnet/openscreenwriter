@@ -1,6 +1,6 @@
 {
   "name": "openscreenwriter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Minimalist Fountain screenplay editor with FDX export",
   "main": "main.js",
   "author": "Mitchell Reid",

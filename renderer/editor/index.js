@@ -16,6 +16,8 @@ import { screenplaySchema, ELEMENT_LABELS } from './schema.js';
 import { fountainToDoc, docToFountain } from './serializer.js';
 import { createScreenplayKeymap } from './keymap.js';
 import { createPaginationPlugin } from './pagination.js';
+import { buildNodeViews } from './node-views.js';
+import { heightRegistry } from './height-registry.js';
 import {
   setBlockType as setBlockTypeCmd,
   insertPageBreak as insertPageBreakCmd,
@@ -108,6 +110,7 @@ function createEditor(doc) {
 
   editorView = new EditorView(wysiwygMount, {
     state,
+    nodeViews: buildNodeViews(screenplaySchema, () => zoomLevel),
     dispatchTransaction(tr) {
       const newState = editorView.state.apply(tr);
       editorView.updateState(newState);
@@ -123,7 +126,7 @@ function createEditor(doc) {
         else if (isClean && isDirty) setDirty(false);
 
         // Scene nav
-        if (sidePanel.style.display !== 'none') {
+        if (sidePanel.classList.contains('is-open')) {
           updateSceneNav();
         }
       }
@@ -256,8 +259,8 @@ function updateSceneNav() {
 }
 
 function toggleSidePanel() {
-  const visible = sidePanel.style.display !== 'none';
-  sidePanel.style.display = visible ? 'none' : 'flex';
+  const visible = sidePanel.classList.contains('is-open');
+  sidePanel.classList.toggle('is-open', !visible);
   btnSceneNav.classList.toggle('active', !visible);
   if (!visible) updateSceneNav();
 }
@@ -347,9 +350,10 @@ function toggleSourceMode() {
     createEditor(doc);
 
     refreshTitlePageInEditor(editorPaper);
+    if (editorView) editorView.dispatch(editorView.state.tr);
     syncSidePanelFromData();
     editorView.focus();
-    if (sidePanel.style.display !== 'none') updateSceneNav();
+    if (sidePanel.classList.contains('is-open')) updateSceneNav();
   }
 
   statusFilename.classList.toggle('source-mode-active', sourceMode);
@@ -384,6 +388,7 @@ async function openFile() {
   createEditor(doc);
 
   refreshTitlePageInEditor(editorPaper);
+  if (editorView) editorView.dispatch(editorView.state.tr);
   syncSidePanelFromData();
 
   if (isFdx) {
@@ -399,7 +404,7 @@ async function openFile() {
   }
 
   editorView.focus();
-  if (sidePanel.style.display !== 'none') updateSceneNav();
+  if (sidePanel.classList.contains('is-open')) updateSceneNav();
 }
 
 async function saveFile() {
@@ -506,6 +511,12 @@ function dismissStartup(action) {
 // Zoom
 // ============================================================
 
+window.addEventListener('resize', () => {
+  // ResizeObservers on NodeViews fire automatically when text reflows.
+  // Invalidate margin cache in case window resize changes computed styles.
+  heightRegistry.invalidateMarginCache();
+});
+
 document.addEventListener('wheel', e => {
   if (!e.ctrlKey) return;
   e.preventDefault();
@@ -605,6 +616,7 @@ function init() {
     document.getElementById(id).addEventListener('input', () => {
       syncDataFromSidePanel();
       refreshTitlePageInEditor(editorPaper);
+      if (editorView) editorView.dispatch(editorView.state.tr);
       setDirty(true);
     });
   });
@@ -618,6 +630,7 @@ function init() {
       data.contactPosition = btn.dataset.pos;
       setTitlePageData(data);
       refreshTitlePageInEditor(editorPaper);
+      if (editorView) editorView.dispatch(editorView.state.tr);
       setDirty(true);
     });
   });
@@ -630,6 +643,7 @@ function init() {
     if (submitTitlePageWizard()) {
       hideTitlePageWizard(editorView?.dom);
       refreshTitlePageInEditor(editorPaper);
+      if (editorView) editorView.dispatch(editorView.state.tr);
       syncSidePanelFromData();
       setDirty(true);
     }

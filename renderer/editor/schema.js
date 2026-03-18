@@ -47,10 +47,10 @@ export const screenplaySchema = new Schema({
       atom: true,
       toDOM() {
         return ['div', {
-          class: 'ws-block ws-empty',
+          class: 'ws-block ws-page-break-atom',
           'data-type': 'page_break',
           contenteditable: 'false',
-        }, '==='];
+        }];
       },
       parseDOM: [{ tag: 'div[data-type="page_break"]' }],
     },

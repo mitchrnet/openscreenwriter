@@ -1,20 +1,148 @@
 /**
  * pagination.js — Page break decorations for ProseMirror
  *
- * Page breaks are visual-only widgets (Decorations) that never touch the
- * document model or interfere with cursor state. This is the key architectural
- * fix over the old raw-contentEditable approach.
+ * ResizeObserver approach: block heights are reported by ScreenplayBlockNodeViews
+ * via heightRegistry. This makes pagination zoom-aware, font-aware, and resilient
+ * to CSS changes — no hardcoded CSS values in JS.
  *
- * Uses the `decorations` prop approach — decorations are computed lazily
- * in the view layer, not stored in editor state, avoiding dispatch loops.
+ * Each "page" is padded to look exactly 11in tall by adding a Decoration.node
+ * padding-bottom to the last block before each break, giving true WYSIWYG output.
  */
 
-import { Plugin } from 'prosemirror-state';
+import { Plugin, PluginKey } from 'prosemirror-state';
 import { Decoration, DecorationSet } from 'prosemirror-view';
+import { heightRegistry } from './height-registry.js';
 
-// 8.5"x11" page, 1in top + 2in bottom padding → 8" content = 768px at 96 CSS px/in
-const PAGE_CONTENT_H = 8 * 96;
+const paginationKey = new PluginKey('pagination');
+
+// 8.5"×11" page, 1in top + 1in bottom padding → 9in content = 864px at 96 CSS px/in
+const PAGE_CONTENT_H = 9 * 96; // 864px
 const MARKER_H = 80;
+
+// Page number widget heights (padding-top + 12pt line):
+//   Pages 2+:         padding-top 0.5in (48px) + 16px = 64px
+//   Page 1 no-title:  padding-top 0 + 16px = 16px (noPaddingTop override)
+//   Page 1 w/title:   same 64px as pages 2+
+const PAGE_NUM_H  = 64;  // pages 2+ and page 1 with title page
+const PAGE1_NUM_H = 16;  // page 1 without title page
+
+// ─── Widget factory helpers ───────────────────────────────────────────────────
+
+function createMarker(pageNum) {
+  const marker = document.createElement('div');
+  marker.className = 'ws-block ws-page-break-marker ws-page-break-settled';
+  marker.contentEditable = 'false';
+  marker.dataset.page = pageNum > 0 ? `Page ${pageNum}` : '';
+  return marker;
+}
+
+function createPageNum(pageNum, noPaddingTop = false) {
+  const el = document.createElement('div');
+  el.className = 'ws-block ws-page-number';
+  el.contentEditable = 'false';
+  el.textContent = `${pageNum}.`;
+  if (noPaddingTop) {
+    el.style.paddingTop = '0';
+    el.style.position = 'relative';
+    el.style.top = '-0.5in';
+  }
+  return el;
+}
+
+// ─── Core algorithm ───────────────────────────────────────────────────────────
+
+/**
+ * Build a DecorationSet with:
+ *   - Decoration.widget  — page-break gutters and page-number labels
+ *   - Decoration.node    — padding-bottom on the last block before each break,
+ *                          so every page section fills exactly PAGE_CONTENT_H px
+ *                          and looks like a consistent 8.5"×11" sheet.
+ */
+function buildDecorations(state, hasTitlePage) {
+
+  const decorations = [];
+  let pageNum = 1;
+
+  // cumulativeH tracks vertical space consumed on the current page, starting
+  // with the page-number widget's own height (it occupies real content-area
+  // space). Page 1's number has padding-top:0 when there's no title page.
+  let cumulativeH = hasTitlePage() ? PAGE_NUM_H : PAGE1_NUM_H;
+
+  // Track the previous node so we can pad it to fill the remaining page space
+  // when the *next* node overflows.
+  let prevOffset   = -1;
+  let prevNodeSize = 0;
+
+  state.doc.forEach((node, offset) => {
+    if (node.type.name === 'page_break') {
+      // Manual break: reset accumulator for the new page.
+      pageNum++;
+      cumulativeH  = PAGE_NUM_H;
+      prevOffset   = -1;
+      return;
+    }
+
+    const nodeH   = heightRegistry.getContentHeight(offset);
+    // Screenplay blocks are never the CSS :first-child (the page-number widget
+    // is), so their margin-top is always rendered — include it unconditionally.
+    const mt      = heightRegistry.getMarginTop(node.type.name);
+    const effectH = nodeH + mt;
+
+    if (prevOffset >= 0 && cumulativeH + effectH > PAGE_CONTENT_H) {
+      // This node overflows the current page.
+      // 1. Pad the PREVIOUS node (last block on the current page) so the page
+      //    section fills exactly PAGE_CONTENT_H px, giving a uniform 11" card.
+      const remainingSpace = PAGE_CONTENT_H - cumulativeH;
+      if (remainingSpace > 0) {
+        decorations.push(Decoration.node(prevOffset, prevOffset + prevNodeSize, {
+          style: `padding-bottom: ${Math.round(remainingSpace)}px`,
+        }));
+      }
+
+      // 2. Insert the gutter and page-number label before the overflowing node.
+      const pg = pageNum + 1;
+      decorations.push(Decoration.widget(offset, () => createMarker(pg),  { side: -1 }));
+      decorations.push(Decoration.widget(offset, () => createPageNum(pg), { side: -1 }));
+
+      pageNum++;
+      // Start the new page's accumulator: page-number widget + this node.
+      // This node's margin IS rendered (page-number widget precedes it).
+      cumulativeH = PAGE_NUM_H + effectH;
+    } else {
+      cumulativeH += effectH;
+    }
+
+    prevOffset   = offset;
+    prevNodeSize = node.nodeSize;
+  });
+
+  // Pad the last page to PAGE_CONTENT_H just like every intermediate page.
+  // Without this, the last page is naturally shorter (no overflow triggers it),
+  // making all pages look inconsistent. Every page should be a fixed 9in card.
+  if (prevOffset >= 0) {
+    const lastPageRemaining = PAGE_CONTENT_H - cumulativeH;
+    if (lastPageRemaining > 0) {
+      decorations.push(Decoration.node(prevOffset, prevOffset + prevNodeSize, {
+        style: `padding-bottom: ${Math.round(lastPageRemaining)}px`,
+      }));
+    }
+  }
+
+  // Title page separator at offset 0 (before all screenplay content)
+  if (hasTitlePage()) {
+    decorations.push(Decoration.widget(0, () => createMarker(0), { side: -1 }));
+  }
+
+  // Page 1 number — always at the very top of script content.
+  // Without a title-page above it, suppress the 0.5in padding-top so it sits
+  // flush rather than floating 0.5in into the first page.
+  decorations.push(Decoration.widget(0,
+    () => createPageNum(1, !hasTitlePage()), { side: -1 }));
+
+  return { decoSet: DecorationSet.create(state.doc, decorations), pageCount: pageNum };
+}
+
+// ─── Plugin ───────────────────────────────────────────────────────────────────
 
 /**
  * Create the pagination plugin.
@@ -25,134 +153,114 @@ const MARKER_H = 80;
 export function createPaginationPlugin(options = {}) {
   const {
     getEditorPaper = () => document.getElementById('editor-paper'),
-    hasTitlePage = () => false,
-    onPageCount = () => {},
+    hasTitlePage   = () => false,
+    onPageCount    = () => {},
   } = options;
 
-  // Cache decorations — only recompute when doc changes
-  let cachedDecos = DecorationSet.empty;
-  let cachedDoc = null;
-  let pendingRAF = null;
-  let currentView = null;
+  let currentView      = null;
+  let docChangeTimeout = null;
 
-  function scheduleRecalc() {
-    if (pendingRAF) return;
-    pendingRAF = requestAnimationFrame(() => {
-      pendingRAF = null;
-      if (currentView) {
-        recalculate(currentView);
-        // Force a re-render so new decorations are picked up
-        currentView.updateState(currentView.state);
-      }
-    });
+  function scheduleDocChangeRecalc(view) {
+    // setTimeout(0) fires after the current frame's rendering (including
+    // ResizeObserver callbacks), so the registry is fully populated by
+    // the time recalculate runs.
+    if (docChangeTimeout !== null) clearTimeout(docChangeTimeout);
+    docChangeTimeout = setTimeout(() => {
+      docChangeTimeout = null;
+      if (currentView) recalculate(currentView);
+    }, 0);
   }
 
   function recalculate(view) {
-    const { state } = view;
     const editorPaper = getEditorPaper();
     if (!editorPaper) return;
 
-    const zoom = parseFloat(editorPaper.style.zoom) || 1;
-    const decorations = [];
-    let pageNum = 1;
+    // Sync any stale positions caused by document insertions/deletions that
+    // shifted nodes without changing their heights.
+    heightRegistry.refreshPositions();
 
-    const editorDOM = view.dom;
-    const editorRect = editorDOM.getBoundingClientRect();
-    if (editorRect.height === 0) return;
+    // Wait until every active NodeView has reported a height. If we run while
+    // new NodeViews are still initializing (ResizeObserver hasn't fired yet),
+    // their heights read as 0, the accumulator never overflows PAGE_CONTENT_H,
+    // and pages grow infinitely. Returning here keeps the existing (mapped)
+    // decorations alive; once the last NodeView reports, onChange fires and
+    // recalculate runs again with complete data.
+    if (!heightRegistry.allReported()) return;
 
-    // Title page offset
-    let titlePageOffset = 0;
-    if (hasTitlePage()) {
-      const tpContainer = editorDOM.parentElement?.querySelector('.ws-title-page-container');
-      if (tpContainer) {
-        titlePageOffset = tpContainer.getBoundingClientRect().height / zoom;
-      }
-    }
+    const { decoSet, pageCount } = buildDecorations(view.state, hasTitlePage);
+    updatePaperMinHeight(editorPaper, pageCount, hasTitlePage());
+    onPageCount(pageCount);
+    view.dispatch(view.state.tr.setMeta(paginationKey, decoSet));
+  }
 
-    // Walk top-level nodes and measure positions
-    state.doc.forEach((node, offset) => {
-      const domNode = view.nodeDOM(offset);
-      if (!domNode || !domNode.getBoundingClientRect) return;
-
-      const rect = domNode.getBoundingClientRect();
-      const bottom = (rect.bottom - editorRect.top) / zoom - titlePageOffset;
-
-      while (bottom > pageNum * PAGE_CONTENT_H) {
-        decorations.push(Decoration.widget(offset, () => {
-          const marker = document.createElement('div');
-          marker.className = 'ws-block ws-page-break-marker ws-page-break-settled';
-          marker.contentEditable = 'false';
-          marker.dataset.page = `Page ${pageNum + 1}`;
-          return marker;
-        }, { side: -1 }));
-
-        decorations.push(Decoration.widget(offset, () => {
-          const el = document.createElement('div');
-          el.className = 'ws-block ws-page-number';
-          el.contentEditable = 'false';
-          el.textContent = `${pageNum + 1}.`;
-          return el;
-        }, { side: -1 }));
-
-        pageNum++;
-      }
-    });
-
-    // Title page separator
-    if (hasTitlePage()) {
-      decorations.push(Decoration.widget(0, () => {
-        const marker = document.createElement('div');
-        marker.className = 'ws-block ws-page-break-marker ws-page-break-settled';
-        marker.contentEditable = 'false';
-        marker.dataset.page = '';
-        return marker;
-      }, { side: -1 }));
-    }
-
-    // Update paper min-height
-    const totalPages = Math.max(1, pageNum);
-    if (hasTitlePage()) {
+  function updatePaperMinHeight(editorPaper, totalPages, withTitlePage) {
+    // All pages (including the last) now fill exactly PAGE_CONTENT_H.
+    // Total height = CSS margins (2in) + pages * PAGE_CONTENT_H + gaps * MARKER_H
+    // Title page adds an extra 11in section before page 1.
+    if (withTitlePage) {
       editorPaper.style.minHeight =
-        `calc(22in + ${Math.max(0, totalPages - 1)} * (8in + ${MARKER_H}px + 0.5in))`;
+        `calc(11in + ${totalPages} * ${PAGE_CONTENT_H}px + ${totalPages} * ${MARKER_H}px)`;
     } else {
       editorPaper.style.minHeight =
-        `calc(11in + ${totalPages - 1} * (8in + ${MARKER_H}px + 0.5in))`;
+        `calc(2in + ${totalPages} * ${PAGE_CONTENT_H}px + ${totalPages - 1} * ${MARKER_H}px)`;
     }
-
-    onPageCount(totalPages);
-
-    cachedDecos = DecorationSet.create(state.doc, decorations);
-    cachedDoc = state.doc;
   }
 
   return new Plugin({
+    key: paginationKey,
+
+    state: {
+      init() {
+        return DecorationSet.empty;
+      },
+      apply(tr, decoSet) {
+        const fresh = tr.getMeta(paginationKey);
+        if (fresh) return fresh;
+        return decoSet.map(tr.mapping, tr.doc);
+      },
+    },
+
     view(editorView) {
       currentView = editorView;
+      let prevHasTitlePage = hasTitlePage();
 
-      // Initial calculation after layout
-      setTimeout(scheduleRecalc, 100);
+      // Register recalc callback — heightRegistry owns the RAF debounce.
+      // NodeViews fire this automatically when any block height changes.
+      heightRegistry.setOnChange(() => {
+        if (currentView) recalculate(currentView);
+      });
 
       return {
         update(view, prevState) {
           currentView = view;
-          if (!prevState.doc.eq(view.state.doc)) {
-            scheduleRecalc();
+          const nowHasTitlePage = hasTitlePage();
+          if (nowHasTitlePage !== prevHasTitlePage) {
+            prevHasTitlePage = nowHasTitlePage;
+            recalculate(view);
+            return;
+          }
+          // Re-paginate after any document change (handles deletions and cases
+          // where node positions shift without height changes). Deferred via
+          // setTimeout(0) so the current frame's ResizeObserver callbacks run
+          // first and populate the registry before recalculate reads it.
+          if (prevState.doc !== view.state.doc) {
+            scheduleDocChangeRecalc(view);
           }
         },
         destroy() {
           currentView = null;
-          if (pendingRAF) cancelAnimationFrame(pendingRAF);
+          if (docChangeTimeout !== null) {
+            clearTimeout(docChangeTimeout);
+            docChangeTimeout = null;
+          }
+          heightRegistry.setOnChange(null);
         },
       };
     },
 
     props: {
       decorations(state) {
-        if (cachedDoc && cachedDoc.eq(state.doc)) {
-          return cachedDecos;
-        }
-        // Return empty while waiting for rAF recalculation
-        return DecorationSet.empty;
+        return paginationKey.getState(state);
       },
     },
   });

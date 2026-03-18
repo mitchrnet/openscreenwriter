@@ -45,6 +45,7 @@ html, body {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   -webkit-app-region: drag;
+  position: relative;
 }
 
 .toolbar-logo {
@@ -124,6 +125,7 @@ html, body {
   display: flex;
   flex: 1;
   overflow: hidden;
+  position: relative;
 }
 
 /* ---- Editor pane — scroll container ---- */
@@ -140,11 +142,11 @@ html, body {
 #editor-paper {
   position: relative;
   width: 100%;
-  max-width: 680px;
+  max-width: 816px;
   margin: 0 auto;
   background: #ffffff;
   box-shadow: 0 2px 16px rgba(0,0,0,0.18);
-  padding: 1in 1in 2in;
+  padding: 1in 1in 1in 1.5in;
   min-height: 11in;
   /* min-height stays at CSS 11in; paper grows naturally with content */
 }
@@ -211,14 +213,14 @@ html, body {
 }
 
 .ws-dialogue {
-  margin-left: 1.5in;
+  margin-left: 1.0in;
   margin-right: 1.5in;
   color: #111;
 }
 
 .ws-parenthetical {
-  margin-left: 1.9in;
-  margin-right: 2.1in;
+  margin-left: 1.6in;
+  margin-right: 1.5in;
   color: #444;
 }
 
@@ -253,6 +255,16 @@ html, body {
   min-height: 1em;
 }
 
+.ws-page-break-atom {
+  display: block;
+  height: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: none;
+}
+
 /* ---- Source editor textarea ---- */
 #source-editor {
   display: block;
@@ -280,9 +292,9 @@ html, body {
  */
 .ws-page-break-marker {
   display: block;
-  width: calc(100% + 2in);
+  width: calc(100% + 2.5in);
   height: 80px;
-  margin: 0 -1in;
+  margin: 0 -1in 0 -1.5in;
   background: var(--bg);
   position: relative;
   pointer-events: none;
@@ -348,41 +360,45 @@ html, body {
 
 /* ---- Element type pill & dropdown ---- */
 #element-dropdown-wrapper {
-  position: relative;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
   -webkit-app-region: no-drag;
 }
 
 .element-pill {
   -webkit-app-region: no-drag;
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 0.2rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.3rem 0.9rem;
   border-radius: 20px;
-  border: 1px solid var(--border);
-  color: var(--muted);
+  border: 1px solid var(--accent2);
+  color: var(--text);
   background: var(--surface2);
   user-select: none;
   white-space: nowrap;
   margin-right: 0.25rem;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 
 .element-pill:hover {
-  border-color: var(--accent2);
+  border-color: var(--accent);
   background: var(--surface);
+  color: var(--accent);
 }
 
 #element-dropdown {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   left: 0;
   z-index: 500;
-  min-width: 160px;
+  min-width: 180px;
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--accent2);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   padding: 4px 0;
   overflow: hidden;
 }
@@ -390,8 +406,8 @@ html, body {
 .element-dropdown-item {
   display: block;
   width: 100%;
-  padding: 0.35rem 0.75rem;
-  font-size: 0.75rem;
+  padding: 0.42rem 0.85rem;
+  font-size: 0.78rem;
   font-weight: 500;
   font-family: var(--font-ui);
   color: var(--text);
@@ -612,14 +628,24 @@ body[data-theme="light"] .context-menu-item:hover {
 
 /* ---- Side panel (tabbed) ---- */
 #side-panel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
   width: 240px;
-  flex-shrink: 0;
+  z-index: 200;
   background: var(--surface);
   border-right: 1px solid var(--border);
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
+  transform: translateX(-100%);
+  transition: transform 0.25s ease;
+}
+
+#side-panel.is-open {
+  transform: translateX(0);
 }
 
 .side-panel-tabs {
@@ -711,8 +737,8 @@ body[data-theme="light"] #side-panel::-webkit-scrollbar-thumb {
 /* ---- Page numbers ---- */
 .ws-page-number {
   display: block;
-  width: calc(100% + 2in);
-  margin: 0 -1in;
+  width: calc(100% + 2.5in);
+  margin: 0 -1in 0 -1.5in;
   padding: 0.5in 1in 0 0;
   font-family: var(--font-mono);
   font-size: 12pt;

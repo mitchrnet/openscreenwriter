@@ -96,7 +96,37 @@ Run:
 npm run dist
 ```
 
-Output: `dist/OpenScreenwriter Setup 1.0.0.exe`
+Output: `dist/OpenScreenwriter Setup 1.1.0.exe`
+
+---
+
+## Changelog
+
+### v1.1.0 — 2026-03-17
+
+**Layout & formatting fixes**
+- Corrected paper width to 816px (8.5in at 96 dpi) — was 680px
+- WGA-standard binding margins: 1.5in left, 1in top/right/bottom
+- Dialogue indent corrected to 1.0in left (was 1.5in)
+- Parenthetical indent corrected to 1.6in left / 1.5in right (was 1.9in / 2.1in)
+- Page break markers and page number labels now bleed correctly across the 1.5in left margin
+
+**Pagination**
+- Rewrote pagination engine: ResizeObserver-based height tracking replaces manual DOM measurement — now zoom-aware and font-aware
+- Every page now fills exactly 9in (864px) via bottom-padding decoration, giving a consistent fixed-height page card
+- Fixed page 1 number position when no title page: now sits at 0.5in from paper top (matching pages 2+), was incorrectly at 1in
+- Manual page breaks (`===`) now render as zero-height invisible atoms instead of visible `===` text
+
+**UI**
+- Side panel now slides in/out with a CSS transition instead of a hard display toggle
+- Element type pill centered in toolbar via absolute positioning
+
+### v1.0.0 — 2026-02-24 *(initial release)*
+
+- WYSIWYG Fountain editor on ProseMirror
+- FDX import and export
+- Title page wizard, scene navigation panel, source mode
+- Dark/light theme, Ctrl+scroll zoom, smart Enter/Tab key bindings
 
 ---
 
