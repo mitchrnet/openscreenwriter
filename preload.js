@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('screenwriterAPI', {
   openExternal: (url)     => ipcRenderer.invoke('shell:openExternal', url),
 
   // Autosave
+  autosaveWriteRealFile: (payload) => ipcRenderer.invoke('autosave:writeRealFile', payload),
   autosaveWrite:   (payload) => ipcRenderer.invoke('autosave:write', payload),
   autosaveDelete:  (payload) => ipcRenderer.invoke('autosave:delete', payload),
   autosaveCheck:   (payload) => ipcRenderer.invoke('autosave:check', payload),
@@ -31,4 +32,5 @@ contextBridge.exposeInMainWorld('screenwriterAPI', {
   onMenuInsertPageBreak:  (cb) => ipcRenderer.on('menu:insertPageBreak',  () => cb()),
   onMenuInsertLineBreak:  (cb) => ipcRenderer.on('menu:insertLineBreak',  () => cb()),
   onMenuAbout:            (cb) => ipcRenderer.on('menu:about',            () => cb()),
+  onMenuToggleAutosave:   (cb) => ipcRenderer.on('menu:toggleAutosave',   (_, checked) => cb(checked)),
 });

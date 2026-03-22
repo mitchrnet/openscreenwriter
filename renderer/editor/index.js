@@ -386,15 +386,15 @@ async function openFile() {
   const isFdx = result.filePath.toLowerCase().endsWith('.fdx');
   let fountainText = isFdx ? fdxToFountain(result.content) : result.content;
 
-  // Check for a recovery file before loading the saved version
-  const openedPath = isFdx ? null : result.filePath;
-  if (autosave) {
-    const recovered = await autosave.checkRecovery(openedPath);
+  // Named files no longer use recovery files — autosave writes to the real file directly.
+  // Only check recovery for untitled (FDX import treated as untitled).
+  if (autosave && isFdx) {
+    const recovered = await autosave.checkRecovery(null);
     if (recovered !== null) {
       fountainText = recovered;
     }
-    autosave.onFilePathChange();
   }
+  if (autosave) autosave.onFilePathChange();
 
   const { doc, titlePageData } = fountainToDoc(fountainText, screenplaySchema);
   setTitlePageData(titlePageData);
@@ -422,6 +422,7 @@ async function openFile() {
 
 async function saveFile() {
   const content = getFountainText();
+  const previousPath = currentFilePath;
   const savedPath = await window.screenwriterAPI.saveFile({
     content,
     filePath: currentFilePath,
@@ -434,11 +435,12 @@ async function saveFile() {
   setDirty(false);
 
   // Clean up autosave after a successful manual save
-  if (autosave) await autosave.onManualSave(savedPath);
+  if (autosave) await autosave.onManualSave(savedPath, previousPath);
 }
 
 async function saveFileAs() {
   const content = getFountainText();
+  const previousPath = currentFilePath;
   const savedPath = await window.screenwriterAPI.saveFileAs({ content });
   if (!savedPath) return;
 
@@ -448,7 +450,7 @@ async function saveFileAs() {
   setDirty(false);
 
   // Clean up autosave after a successful Save As
-  if (autosave) await autosave.onManualSave(savedPath);
+  if (autosave) await autosave.onManualSave(savedPath, previousPath);
 }
 
 async function exportFdx() {
@@ -781,10 +783,21 @@ function init() {
     indicatorEl: statusAutosave,
   });
 
-  // On clean quit, remove the autosave file so we don't offer recovery next launch
+  // On clean quit, remove the untitled recovery file so we don't offer recovery next launch.
+  // Named files don't need cleanup — the last autosave IS the current file on disk.
   window.addEventListener('beforeunload', () => {
-    autosave.cleanQuit(currentFilePath);
+    autosave.cleanQuit();
     autosave.stop();
+  });
+
+  // Sync the menu checkbox state with localStorage on startup
+  // (The menu defaults to checked=true; if the user previously disabled it, we
+  //  can't update the native menu item from the renderer, but the controller
+  //  reads localStorage directly on each tick, so the preference is respected.)
+
+  // Toggle autosave from View menu
+  window.screenwriterAPI.onMenuToggleAutosave((checked) => {
+    autosave.setEnabled(checked);
   });
 
   // Check for a recovery on startup (for untitled / no file open yet)

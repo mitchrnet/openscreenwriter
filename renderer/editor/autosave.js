@@ -2,13 +2,26 @@
  * autosave.js — Autosave controller for OpenScreenwriter
  *
  * Fires every 60 seconds. Only writes if the document content has changed
- * since the last autosave. Cleans up the recovery file on a clean manual
- * save or when the app quits normally. Shows a brief "Autosaved" notice in
- * the status bar.
+ * since the last autosave write. Shows a brief "Autosaved" notice in the
+ * status bar.
+ *
+ * Behaviour by document state:
+ *   Named document (file path known):
+ *     Writes directly to the real .fountain file on disk. No recovery file is
+ *     created — if the app crashes, the user just reopens the file from disk.
+ *
+ *   Untitled document (no file path yet):
+ *     Writes to a recovery file in userData/autosave/ so content can be
+ *     offered for recovery on next launch. Recovery file is deleted on a clean
+ *     manual save or normal app quit.
+ *
+ * The autosave toggle is persisted in localStorage under the key
+ * "autosaveEnabled". Defaults to true.
  */
 
 const AUTOSAVE_INTERVAL_MS = 60_000;
 const INDICATOR_VISIBLE_MS = 2_000;
+const STORAGE_KEY = 'autosaveEnabled';
 
 /**
  * Create and start the autosave controller.
@@ -17,12 +30,30 @@ const INDICATOR_VISIBLE_MS = 2_000;
  * @param {() => string}        opts.getContent      - Returns current fountain text
  * @param {() => string|null}   opts.getFilePath     - Returns current file path (or null)
  * @param {HTMLElement}         opts.indicatorEl     - The #status-autosave span element
- * @returns {{ stop, onManualSave, onFilePathChange, checkRecovery }}
+ * @returns {{ stop, start, onManualSave, onFilePathChange, checkRecovery, cleanQuit, setEnabled, isEnabled }}
  */
 export function createAutosaveController({ getContent, getFilePath, indicatorEl }) {
   let lastSavedContent = null;   // content at last autosave write
   let intervalId       = null;
   let indicatorTimer   = null;
+
+  // ----------------------------------------------------------------
+  // Enabled state — persisted in localStorage
+  // ----------------------------------------------------------------
+
+  function isEnabled() {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    // Default to true if not set
+    return stored === null ? true : stored === 'true';
+  }
+
+  function setEnabled(enabled) {
+    localStorage.setItem(STORAGE_KEY, String(enabled));
+    if (!enabled) {
+      // Reset so next enable triggers a fresh write if content has changed
+      lastSavedContent = null;
+    }
+  }
 
   // ----------------------------------------------------------------
   // Internal helpers
@@ -39,13 +70,24 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
   }
 
   async function tryAutosave() {
+    if (!isEnabled()) return;
+
     const content  = getContent();
     const filePath = getFilePath();
 
     // Only write if content has changed since last autosave
     if (content === lastSavedContent) return;
 
-    const ok = await window.screenwriterAPI.autosaveWrite({ content, filePath });
+    let ok = false;
+
+    if (filePath) {
+      // Named document — write directly to the real file
+      ok = await window.screenwriterAPI.autosaveWriteRealFile({ content, filePath });
+    } else {
+      // Untitled document — write to the recovery location
+      ok = await window.screenwriterAPI.autosaveWrite({ content, filePath: null });
+    }
+
     if (ok) {
       lastSavedContent = content;
       showIndicator('Autosaved');
@@ -76,19 +118,24 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
 
   /**
    * Call after a successful manual save.
-   * Deletes the autosave recovery file and resets the change tracker.
+   * For untitled→named transitions, deletes the untitled recovery file.
+   * Resets the change tracker so the next autosave tick is a no-op.
+   *
+   * @param {string}      savedFilePath - The path just written to
+   * @param {string|null} previousPath  - The file path before this save (null if untitled)
    */
-  async function onManualSave(savedFilePath) {
+  async function onManualSave(savedFilePath, previousPath) {
+    // Capture current content so the next autosave tick skips if nothing changed
     lastSavedContent = getContent();
-    await window.screenwriterAPI.autosaveDelete({ filePath: savedFilePath });
-    // Also clean up any old untitled autosave when saving for the first time
-    if (!savedFilePath) {
+
+    // If the document was untitled before this save, clean up the untitled recovery file
+    if (!previousPath) {
       await window.screenwriterAPI.autosaveDelete({ filePath: null });
     }
   }
 
   /**
-   * Call when the active file path changes (e.g. on open or Save As).
+   * Call when the active file path changes (e.g. on open).
    * Resets the last-saved content so the next tick compares fresh.
    */
   function onFilePathChange() {
@@ -96,47 +143,51 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
   }
 
   /**
-   * Check for a recovery file for the given path (or untitled if null).
+   * Check for a recovery file for an untitled document.
+   * Only meaningful for untitled docs (filePath === null).
+   * Named documents no longer use recovery files — they write to the real file.
+   *
    * Returns the recovered content string if found and accepted, or null.
    *
-   * @param {string|null} filePath  - The path of the file just opened (null = untitled)
+   * @param {string|null} filePath  - Pass null for untitled; named files always return null
    * @returns {Promise<string|null>}
    */
   async function checkRecovery(filePath) {
-    const result = await window.screenwriterAPI.autosaveCheck({ filePath });
+    // Named files don't use recovery files in the new design
+    if (filePath !== null) return null;
+
+    const result = await window.screenwriterAPI.autosaveCheck({ filePath: null });
     if (!result.exists) return null;
 
-    // Build a friendly label for the dialog
-    const name = filePath
-      ? filePath.split(/[\\/]/).pop()
-      : 'untitled.fountain';
-
     const confirmed = window.confirm(
-      `A recovery file was found for "${name}".\n\nThis may contain unsaved changes from a previous session.\n\nDo you want to restore it?`
+      'A recovery file was found for an unsaved document.\n\n' +
+      'This may contain unsaved changes from a previous session.\n\n' +
+      'Do you want to restore it?'
     );
 
     if (confirmed) {
-      const content = await window.screenwriterAPI.autosaveRead({ filePath });
-      // Remove the autosave so we don't prompt again next time
-      await window.screenwriterAPI.autosaveDelete({ filePath });
+      const content = await window.screenwriterAPI.autosaveRead({ filePath: null });
+      await window.screenwriterAPI.autosaveDelete({ filePath: null });
       lastSavedContent = content;
       return content;
     } else {
       // User declined — delete the stale autosave
-      await window.screenwriterAPI.autosaveDelete({ filePath });
+      await window.screenwriterAPI.autosaveDelete({ filePath: null });
       return null;
     }
   }
 
   /**
-   * Notify main process to clean up autosave on clean quit.
-   * Should be called from beforeunload.
+   * Notify main process to clean up the untitled recovery file on clean quit.
+   * Should be called from beforeunload. Named files don't need cleanup since
+   * the last autosave IS the current file content.
    */
-  function cleanQuit(filePath) {
-    window.screenwriterAPI.autosaveCleanQuit({ filePath });
+  function cleanQuit() {
+    // Only clean up untitled recovery files; named files are already correct on disk
+    window.screenwriterAPI.autosaveCleanQuit({ filePath: null });
   }
 
   start();
 
-  return { stop, start, onManualSave, onFilePathChange, checkRecovery, cleanQuit };
+  return { stop, start, onManualSave, onFilePathChange, checkRecovery, cleanQuit, setEnabled, isEnabled };
 }

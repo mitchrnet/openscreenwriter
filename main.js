@@ -134,6 +134,13 @@ function buildMenu() {
           click: () => mainWindow.webContents.send('menu:toggleSourceMode'),
         },
         { type: 'separator' },
+        {
+          label: 'Autosave',
+          type: 'checkbox',
+          checked: true,
+          click: (menuItem) => mainWindow.webContents.send('menu:toggleAutosave', menuItem.checked),
+        },
+        { type: 'separator' },
         { role: 'reload' },
         { role: 'forceReload' },
         { role: 'toggleDevTools' },
@@ -249,6 +256,20 @@ ipcMain.handle('window:setTitle', async (event, { title }) => {
 });
 
 // --- Autosave IPC ---
+
+/**
+ * Write content directly to a named .fountain file (no dialog).
+ * Used by autosave for documents that already have a file path.
+ */
+ipcMain.handle('autosave:writeRealFile', (event, { content, filePath }) => {
+  if (!filePath) return false;
+  try {
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return true;
+  } catch {
+    return false;
+  }
+});
 
 ipcMain.handle('autosave:write', (event, { content, filePath }) => {
   try {

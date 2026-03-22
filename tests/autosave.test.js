@@ -15,12 +15,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  */
 function makeApi({ writeOk = true } = {}) {
   return {
-    autosaveWrite:     vi.fn().mockResolvedValue(writeOk),
-    autosaveDelete:    vi.fn().mockResolvedValue(true),
-    autosaveCheck:     vi.fn().mockResolvedValue({ exists: false }),
-    autosaveRead:      vi.fn().mockResolvedValue(null),
-    autosaveListAll:   vi.fn().mockResolvedValue([]),
-    autosaveCleanQuit: vi.fn(),
+    autosaveWriteRealFile: vi.fn().mockResolvedValue(writeOk),
+    autosaveWrite:         vi.fn().mockResolvedValue(writeOk),
+    autosaveDelete:        vi.fn().mockResolvedValue(true),
+    autosaveCheck:         vi.fn().mockResolvedValue({ exists: false }),
+    autosaveRead:          vi.fn().mockResolvedValue(null),
+    autosaveCleanQuit:     vi.fn(),
   };
 }
 
@@ -41,22 +41,30 @@ function makeIndicator() {
 }
 
 /**
+ * Build a minimal mock for localStorage.
+ */
+function makeStorage() {
+  const store = {};
+  return {
+    getItem:    (k) => (k in store ? store[k] : null),
+    setItem:    (k, v) => { store[k] = String(v); },
+    removeItem: (k) => { delete store[k]; },
+    _store:     store,
+  };
+}
+
+/**
  * Advance fake timers by `ms` and flush the resulting promise microtasks.
- * This is the correct pattern when the timer callback is async:
- *   advanceTimersByTime() triggers the setInterval callback synchronously,
- *   then we await a resolved promise to flush any awaited microtasks inside
- *   the callback (e.g. `await api.autosaveWrite(...)` ).
  */
 async function tick(ms) {
   vi.advanceTimersByTime(ms);
-  // Flush microtasks produced by the async callback
   await Promise.resolve();
-  await Promise.resolve(); // two rounds: one for the await inside tryAutosave, one for the mock chain
+  await Promise.resolve();
 }
 
 /**
  * Inline mirror of the autosave controller logic.
- * Accepts an `api` parameter instead of reading window.screenwriterAPI,
+ * Accepts injected `api` and `storage` instead of global singletons,
  * and optional overrides for intervalMs / indicatorVisibleMs so tests run fast.
  */
 function createAutosaveController({
@@ -64,12 +72,26 @@ function createAutosaveController({
   getFilePath,
   indicatorEl,
   api,
+  storage,
   intervalMs         = 60_000,
   indicatorVisibleMs = 2_000,
 }) {
+  const STORAGE_KEY = 'autosaveEnabled';
   let lastSavedContent = null;
   let intervalId       = null;
   let indicatorTimer   = null;
+
+  function isEnabled() {
+    const stored = storage.getItem(STORAGE_KEY);
+    return stored === null ? true : stored === 'true';
+  }
+
+  function setEnabled(enabled) {
+    storage.setItem(STORAGE_KEY, String(enabled));
+    if (!enabled) {
+      lastSavedContent = null;
+    }
+  }
 
   function showIndicator(text = 'Autosaved') {
     if (!indicatorEl) return;
@@ -82,10 +104,18 @@ function createAutosaveController({
   }
 
   async function tryAutosave() {
+    if (!isEnabled()) return;
     const content  = getContent();
     const filePath = getFilePath();
     if (content === lastSavedContent) return;
-    const ok = await api.autosaveWrite({ content, filePath });
+
+    let ok = false;
+    if (filePath) {
+      ok = await api.autosaveWriteRealFile({ content, filePath });
+    } else {
+      ok = await api.autosaveWrite({ content, filePath: null });
+    }
+
     if (ok) {
       lastSavedContent = content;
       showIndicator('Autosaved');
@@ -102,9 +132,12 @@ function createAutosaveController({
     if (indicatorTimer) { clearTimeout(indicatorTimer); indicatorTimer = null; }
   }
 
-  async function onManualSave(savedFilePath) {
+  async function onManualSave(savedFilePath, previousPath) {
     lastSavedContent = getContent();
-    await api.autosaveDelete({ filePath: savedFilePath });
+    // Clean up untitled recovery file when saving for the first time
+    if (!previousPath) {
+      await api.autosaveDelete({ filePath: null });
+    }
   }
 
   function onFilePathChange() {
@@ -112,20 +145,22 @@ function createAutosaveController({
   }
 
   async function checkRecovery(filePath) {
-    const result = await api.autosaveCheck({ filePath });
+    // Named files don't use recovery files in the new design
+    if (filePath !== null) return null;
+    const result = await api.autosaveCheck({ filePath: null });
     if (!result.exists) return null;
-    const content = await api.autosaveRead({ filePath });
-    await api.autosaveDelete({ filePath });
+    const content = await api.autosaveRead({ filePath: null });
+    await api.autosaveDelete({ filePath: null });
     lastSavedContent = content;
     return content;
   }
 
-  function cleanQuit(filePath) {
-    api.autosaveCleanQuit({ filePath });
+  function cleanQuit() {
+    api.autosaveCleanQuit({ filePath: null });
   }
 
   start();
-  return { stop, start, onManualSave, onFilePathChange, checkRecovery, cleanQuit };
+  return { stop, start, onManualSave, onFilePathChange, checkRecovery, cleanQuit, setEnabled, isEnabled };
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -133,11 +168,13 @@ function createAutosaveController({
 describe('autosave controller', () => {
   let api;
   let indicator;
+  let storage;
 
   beforeEach(() => {
     vi.useFakeTimers();
     api = makeApi();
     indicator = makeIndicator();
+    storage = makeStorage();
   });
 
   afterEach(() => {
@@ -152,27 +189,45 @@ describe('autosave controller', () => {
       getContent:  () => 'hello',
       getFilePath: () => null,
       indicatorEl: indicator,
-      api,
+      api, storage,
     });
     expect(api.autosaveWrite).not.toHaveBeenCalled();
+    expect(api.autosaveWriteRealFile).not.toHaveBeenCalled();
   });
 
-  it('writes after the interval elapses when content has changed', async () => {
+  it('writes to real file after interval when document has a path', async () => {
     createAutosaveController({
       getContent:  () => 'hello',
       getFilePath: () => '/tmp/test.fountain',
       indicatorEl: indicator,
-      api,
+      api, storage,
+      intervalMs: 1_000,
+    });
+
+    await tick(1_000);
+
+    expect(api.autosaveWriteRealFile).toHaveBeenCalledOnce();
+    expect(api.autosaveWriteRealFile).toHaveBeenCalledWith({
+      content:  'hello',
+      filePath: '/tmp/test.fountain',
+    });
+    expect(api.autosaveWrite).not.toHaveBeenCalled();
+  });
+
+  it('writes to recovery file when document is untitled (no path)', async () => {
+    createAutosaveController({
+      getContent:  () => 'hello',
+      getFilePath: () => null,
+      indicatorEl: indicator,
+      api, storage,
       intervalMs: 1_000,
     });
 
     await tick(1_000);
 
     expect(api.autosaveWrite).toHaveBeenCalledOnce();
-    expect(api.autosaveWrite).toHaveBeenCalledWith({
-      content:  'hello',
-      filePath: '/tmp/test.fountain',
-    });
+    expect(api.autosaveWrite).toHaveBeenCalledWith({ content: 'hello', filePath: null });
+    expect(api.autosaveWriteRealFile).not.toHaveBeenCalled();
   });
 
   it('does NOT write again if content has not changed since last autosave', async () => {
@@ -180,15 +235,13 @@ describe('autosave controller', () => {
       getContent:  () => 'same content',
       getFilePath: () => null,
       indicatorEl: indicator,
-      api,
+      api, storage,
       intervalMs: 1_000,
     });
 
-    // First tick — should write
     await tick(1_000);
     expect(api.autosaveWrite).toHaveBeenCalledOnce();
 
-    // Second tick — content unchanged, should NOT write again
     await tick(1_000);
     expect(api.autosaveWrite).toHaveBeenCalledOnce();
   });
@@ -199,14 +252,14 @@ describe('autosave controller', () => {
       getContent:  () => content,
       getFilePath: () => null,
       indicatorEl: indicator,
-      api,
+      api, storage,
       intervalMs: 1_000,
     });
 
     await tick(1_000);
     expect(api.autosaveWrite).toHaveBeenCalledOnce();
 
-    content = 'v2'; // user typed more
+    content = 'v2';
     await tick(1_000);
     expect(api.autosaveWrite).toHaveBeenCalledTimes(2);
   });
@@ -218,27 +271,102 @@ describe('autosave controller', () => {
       getContent:  () => 'hello',
       getFilePath: () => null,
       indicatorEl: indicator,
-      api,
+      api, storage,
       intervalMs: 1_000,
     });
 
     ctrl.stop();
     await tick(1_000);
     expect(api.autosaveWrite).not.toHaveBeenCalled();
+    expect(api.autosaveWriteRealFile).not.toHaveBeenCalled();
+  });
+
+  // ── setEnabled / isEnabled ────────────────────────────────────────────────
+
+  it('isEnabled() returns true by default', () => {
+    const ctrl = createAutosaveController({
+      getContent:  () => '',
+      getFilePath: () => null,
+      indicatorEl: indicator,
+      api, storage,
+    });
+    expect(ctrl.isEnabled()).toBe(true);
+  });
+
+  it('setEnabled(false) prevents writes', async () => {
+    const ctrl = createAutosaveController({
+      getContent:  () => 'hello',
+      getFilePath: () => null,
+      indicatorEl: indicator,
+      api, storage,
+      intervalMs: 1_000,
+    });
+
+    ctrl.setEnabled(false);
+    await tick(1_000);
+    expect(api.autosaveWrite).not.toHaveBeenCalled();
+    expect(api.autosaveWriteRealFile).not.toHaveBeenCalled();
+  });
+
+  it('setEnabled(true) after false resumes writes on next tick', async () => {
+    const ctrl = createAutosaveController({
+      getContent:  () => 'hello',
+      getFilePath: () => null,
+      indicatorEl: indicator,
+      api, storage,
+      intervalMs: 1_000,
+    });
+
+    ctrl.setEnabled(false);
+    await tick(1_000);
+    expect(api.autosaveWrite).not.toHaveBeenCalled();
+
+    ctrl.setEnabled(true);
+    await tick(1_000);
+    expect(api.autosaveWrite).toHaveBeenCalledOnce();
+  });
+
+  it('setEnabled persists to storage', () => {
+    const ctrl = createAutosaveController({
+      getContent:  () => '',
+      getFilePath: () => null,
+      indicatorEl: indicator,
+      api, storage,
+    });
+
+    ctrl.setEnabled(false);
+    expect(storage.getItem('autosaveEnabled')).toBe('false');
+
+    ctrl.setEnabled(true);
+    expect(storage.getItem('autosaveEnabled')).toBe('true');
   });
 
   // ── onManualSave() ────────────────────────────────────────────────────────
 
-  it('onManualSave() calls autosaveDelete with the saved path', async () => {
+  it('onManualSave() deletes untitled recovery when saving for the first time', async () => {
     const ctrl = createAutosaveController({
       getContent:  () => 'script',
       getFilePath: () => '/tmp/script.fountain',
       indicatorEl: indicator,
-      api,
+      api, storage,
     });
 
-    await ctrl.onManualSave('/tmp/script.fountain');
-    expect(api.autosaveDelete).toHaveBeenCalledWith({ filePath: '/tmp/script.fountain' });
+    // previousPath = null means the doc was untitled before this save
+    await ctrl.onManualSave('/tmp/script.fountain', null);
+    expect(api.autosaveDelete).toHaveBeenCalledWith({ filePath: null });
+  });
+
+  it('onManualSave() does NOT call autosaveDelete when re-saving a named file', async () => {
+    const ctrl = createAutosaveController({
+      getContent:  () => 'script',
+      getFilePath: () => '/tmp/script.fountain',
+      indicatorEl: indicator,
+      api, storage,
+    });
+
+    // previousPath = '/tmp/script.fountain' means the doc already had a path
+    await ctrl.onManualSave('/tmp/script.fountain', '/tmp/script.fountain');
+    expect(api.autosaveDelete).not.toHaveBeenCalled();
   });
 
   it('onManualSave() resets lastSavedContent so next tick skips write', async () => {
@@ -246,15 +374,14 @@ describe('autosave controller', () => {
       getContent:  () => 'script',
       getFilePath: () => '/tmp/script.fountain',
       indicatorEl: indicator,
-      api,
+      api, storage,
       intervalMs: 1_000,
     });
 
-    await ctrl.onManualSave('/tmp/script.fountain');
+    await ctrl.onManualSave('/tmp/script.fountain', '/tmp/script.fountain');
 
-    // Content is still 'script' — matches what onManualSave captured
     await tick(1_000);
-    expect(api.autosaveWrite).not.toHaveBeenCalled();
+    expect(api.autosaveWriteRealFile).not.toHaveBeenCalled();
   });
 
   // ── onFilePathChange() ────────────────────────────────────────────────────
@@ -264,19 +391,17 @@ describe('autosave controller', () => {
       getContent:  () => 'content',
       getFilePath: () => '/tmp/a.fountain',
       indicatorEl: indicator,
-      api,
+      api, storage,
       intervalMs: 1_000,
     });
 
-    // First save syncs lastSavedContent to 'content'
     await tick(1_000);
-    expect(api.autosaveWrite).toHaveBeenCalledOnce();
+    expect(api.autosaveWriteRealFile).toHaveBeenCalledOnce();
 
-    // File path changes (e.g. user opens a different file with same text)
     ctrl.onFilePathChange();
 
     await tick(1_000);
-    expect(api.autosaveWrite).toHaveBeenCalledTimes(2);
+    expect(api.autosaveWriteRealFile).toHaveBeenCalledTimes(2);
   });
 
   // ── Indicator ─────────────────────────────────────────────────────────────
@@ -286,7 +411,7 @@ describe('autosave controller', () => {
       getContent:  () => 'text',
       getFilePath: () => null,
       indicatorEl: indicator,
-      api,
+      api, storage,
       intervalMs: 1_000,
     });
 
@@ -301,7 +426,7 @@ describe('autosave controller', () => {
       getContent:         () => 'text',
       getFilePath:        () => null,
       indicatorEl:        indicator,
-      api,
+      api, storage,
       intervalMs:         1_000,
       indicatorVisibleMs: 500,
     });
@@ -309,7 +434,6 @@ describe('autosave controller', () => {
     await tick(1_000);
     expect(indicator._classes.has('visible')).toBe(true);
 
-    // Now advance past the indicator timeout
     await tick(500);
     expect(indicator._classes.has('visible')).toBe(false);
   });
@@ -320,7 +444,7 @@ describe('autosave controller', () => {
       getContent:  () => 'text',
       getFilePath: () => null,
       indicatorEl: indicator,
-      api,
+      api, storage,
       intervalMs: 1_000,
     });
 
@@ -331,12 +455,12 @@ describe('autosave controller', () => {
 
   // ── checkRecovery() ───────────────────────────────────────────────────────
 
-  it('returns null when no autosave exists', async () => {
+  it('returns null when no autosave exists for untitled', async () => {
     const ctrl = createAutosaveController({
       getContent:  () => '',
       getFilePath: () => null,
       indicatorEl: indicator,
-      api,
+      api, storage,
     });
 
     api.autosaveCheck.mockResolvedValue({ exists: false });
@@ -344,15 +468,15 @@ describe('autosave controller', () => {
     expect(result).toBeNull();
   });
 
-  it('returns recovered content and deletes the autosave when recovery exists', async () => {
+  it('returns recovered content and deletes autosave when untitled recovery exists', async () => {
     const ctrl = createAutosaveController({
       getContent:  () => '',
       getFilePath: () => null,
       indicatorEl: indicator,
-      api,
+      api, storage,
     });
 
-    api.autosaveCheck.mockResolvedValue({ exists: true, originalPath: null });
+    api.autosaveCheck.mockResolvedValue({ exists: true });
     api.autosaveRead.mockResolvedValue('recovered content');
 
     const result = await ctrl.checkRecovery(null);
@@ -360,45 +484,34 @@ describe('autosave controller', () => {
     expect(api.autosaveDelete).toHaveBeenCalledWith({ filePath: null });
   });
 
-  it('calls autosaveRead with the correct filePath for named files', async () => {
+  it('always returns null for named files (no recovery file used)', async () => {
     const ctrl = createAutosaveController({
       getContent:  () => '',
       getFilePath: () => '/home/user/script.fountain',
       indicatorEl: indicator,
-      api,
+      api, storage,
     });
 
-    api.autosaveCheck.mockResolvedValue({ exists: true, originalPath: '/home/user/script.fountain' });
-    api.autosaveRead.mockResolvedValue('recovered named file');
+    // Even if a recovery somehow exists, named files skip the check
+    api.autosaveCheck.mockResolvedValue({ exists: true });
+    api.autosaveRead.mockResolvedValue('should not be returned');
 
     const result = await ctrl.checkRecovery('/home/user/script.fountain');
-    expect(result).toBe('recovered named file');
-    expect(api.autosaveRead).toHaveBeenCalledWith({ filePath: '/home/user/script.fountain' });
+    expect(result).toBeNull();
+    expect(api.autosaveCheck).not.toHaveBeenCalled();
   });
 
   // ── cleanQuit() ───────────────────────────────────────────────────────────
 
-  it('cleanQuit() calls autosaveCleanQuit with current filePath', () => {
+  it('cleanQuit() calls autosaveCleanQuit with filePath: null', () => {
     const ctrl = createAutosaveController({
       getContent:  () => '',
       getFilePath: () => '/tmp/script.fountain',
       indicatorEl: indicator,
-      api,
+      api, storage,
     });
 
-    ctrl.cleanQuit('/tmp/script.fountain');
-    expect(api.autosaveCleanQuit).toHaveBeenCalledWith({ filePath: '/tmp/script.fountain' });
-  });
-
-  it('cleanQuit() passes null for untitled documents', () => {
-    const ctrl = createAutosaveController({
-      getContent:  () => '',
-      getFilePath: () => null,
-      indicatorEl: indicator,
-      api,
-    });
-
-    ctrl.cleanQuit(null);
+    ctrl.cleanQuit();
     expect(api.autosaveCleanQuit).toHaveBeenCalledWith({ filePath: null });
   });
 });
