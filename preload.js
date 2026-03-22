@@ -12,6 +12,14 @@ contextBridge.exposeInMainWorld('screenwriterAPI', {
   getVersion:   ()        => ipcRenderer.invoke('app:getVersion'),
   openExternal: (url)     => ipcRenderer.invoke('shell:openExternal', url),
 
+  // Autosave
+  autosaveWrite:   (payload) => ipcRenderer.invoke('autosave:write', payload),
+  autosaveDelete:  (payload) => ipcRenderer.invoke('autosave:delete', payload),
+  autosaveCheck:   (payload) => ipcRenderer.invoke('autosave:check', payload),
+  autosaveRead:    (payload) => ipcRenderer.invoke('autosave:read', payload),
+  autosaveListAll: ()        => ipcRenderer.invoke('autosave:listAll'),
+  autosaveCleanQuit: (payload) => ipcRenderer.send('autosave:cleanQuit', payload),
+
   // Main → Renderer (menu commands)
   // Event arg is stripped so renderer never sees the sender reference.
   onMenuOpen:             (cb) => ipcRenderer.on('menu:open',             () => cb()),

@@ -32,12 +32,14 @@ import {
 } from './title-page.js';
 import { parseFountain } from '../fountain.js';
 import { tokensToFdx, fdxToFountain } from '../fdx.js';
+import { createAutosaveController } from './autosave.js';
 
 // --- DOM references ---
 const wysiwygMount   = document.getElementById('wysiwyg-editor');
 const sourceEditor   = document.getElementById('source-editor');
 const editorPaper    = document.getElementById('editor-paper');
 const statusFilename = document.getElementById('status-filename');
+const statusAutosave = document.getElementById('status-autosave');
 const statusPages    = document.getElementById('status-pages');
 const btnBold        = document.getElementById('btn-bold');
 const btnItalic      = document.getElementById('btn-italic');
@@ -65,6 +67,7 @@ let isDirty          = false;
 let lastSavedDoc     = null;
 let zoomLevel        = 1.0;
 let currentPageCount = 0;
+let autosave         = null;  // autosave controller, set in init()
 
 // ============================================================
 // Editor creation
@@ -381,7 +384,17 @@ async function openFile() {
   }
 
   const isFdx = result.filePath.toLowerCase().endsWith('.fdx');
-  const fountainText = isFdx ? fdxToFountain(result.content) : result.content;
+  let fountainText = isFdx ? fdxToFountain(result.content) : result.content;
+
+  // Check for a recovery file before loading the saved version
+  const openedPath = isFdx ? null : result.filePath;
+  if (autosave) {
+    const recovered = await autosave.checkRecovery(openedPath);
+    if (recovered !== null) {
+      fountainText = recovered;
+    }
+    autosave.onFilePathChange();
+  }
 
   const { doc, titlePageData } = fountainToDoc(fountainText, screenplaySchema);
   setTitlePageData(titlePageData);
@@ -419,6 +432,9 @@ async function saveFile() {
   setCurrentFile(savedPath);
   currentFilePath = savedPath;
   setDirty(false);
+
+  // Clean up autosave after a successful manual save
+  if (autosave) await autosave.onManualSave(savedPath);
 }
 
 async function saveFileAs() {
@@ -430,6 +446,9 @@ async function saveFileAs() {
   setCurrentFile(savedPath);
   currentFilePath = savedPath;
   setDirty(false);
+
+  // Clean up autosave after a successful Save As
+  if (autosave) await autosave.onManualSave(savedPath);
 }
 
 async function exportFdx() {
@@ -754,6 +773,36 @@ function init() {
       dismissStartup('new');
     }
   });
+
+  // --- Autosave ---
+  autosave = createAutosaveController({
+    getContent:  getFountainText,
+    getFilePath: () => currentFilePath,
+    indicatorEl: statusAutosave,
+  });
+
+  // On clean quit, remove the autosave file so we don't offer recovery next launch
+  window.addEventListener('beforeunload', () => {
+    autosave.cleanQuit(currentFilePath);
+    autosave.stop();
+  });
+
+  // Check for a recovery on startup (for untitled / no file open yet)
+  // This runs after the startup modal so the editor is ready.
+  // We defer slightly to let the startup modal appear first.
+  setTimeout(async () => {
+    if (startupModal.style.display !== 'none') return; // let startup modal handle it
+    const recovered = await autosave.checkRecovery(null);
+    if (recovered !== null) {
+      const { doc, titlePageData } = fountainToDoc(recovered, screenplaySchema);
+      setTitlePageData(titlePageData);
+      createEditor(doc);
+      refreshTitlePageInEditor(editorPaper);
+      if (editorView) editorView.dispatch(editorView.state.tr);
+      syncSidePanelFromData();
+      setDirty(true);
+    }
+  }, 500);
 
   // Show startup modal
   showStartupModal();

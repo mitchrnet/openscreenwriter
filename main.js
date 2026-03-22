@@ -3,9 +3,59 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 let mainWindow;
 let currentFilePath = null;
+
+// --- Autosave helpers ---
+
+/**
+ * Return the autosave directory inside userData.
+ * Creates it on first call if it doesn't exist.
+ */
+function getAutosaveDir() {
+  const dir = path.join(app.getPath('userData'), 'autosave');
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
+/**
+ * Map an original file path (or null for untitled) to a stable
+ * autosave filename. Uses a SHA-1 hex of the full path so the
+ * mapping is deterministic and filesystem-safe.
+ */
+function autosavePathFor(filePath) {
+  const key = filePath
+    ? crypto.createHash('sha1').update(filePath).digest('hex')
+    : 'untitled';
+  return path.join(getAutosaveDir(), `${key}.fountain`);
+}
+
+/**
+ * Persist a small JSON sidecar alongside the autosave so we know
+ * which original path the blob belongs to.
+ */
+function writeSidecar(autosavePath, originalPath) {
+  const sidecar = autosavePath + '.json';
+  fs.writeFileSync(sidecar, JSON.stringify({ originalPath: originalPath || null }), 'utf-8');
+}
+
+function readSidecar(autosavePath) {
+  const sidecar = autosavePath + '.json';
+  try {
+    return JSON.parse(fs.readFileSync(sidecar, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function deleteAutosave(autosavePath) {
+  try { fs.unlinkSync(autosavePath); } catch {}
+  try { fs.unlinkSync(autosavePath + '.json'); } catch {}
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -198,6 +248,67 @@ ipcMain.handle('window:setTitle', async (event, { title }) => {
   mainWindow.setTitle(title);
 });
 
+// --- Autosave IPC ---
+
+ipcMain.handle('autosave:write', (event, { content, filePath }) => {
+  try {
+    const dest = autosavePathFor(filePath || null);
+    fs.writeFileSync(dest, content, 'utf-8');
+    writeSidecar(dest, filePath || null);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+ipcMain.handle('autosave:delete', (event, { filePath }) => {
+  try {
+    const dest = autosavePathFor(filePath || null);
+    deleteAutosave(dest);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+/**
+ * Check whether an autosave exists for the given filePath (or untitled).
+ * Returns { exists: bool, autosavePath, originalPath } so the renderer
+ * can offer recovery without exposing raw fs paths unnecessarily.
+ */
+ipcMain.handle('autosave:check', (event, { filePath }) => {
+  const dest = autosavePathFor(filePath || null);
+  if (!fs.existsSync(dest)) return { exists: false };
+  const sidecar = readSidecar(dest);
+  return { exists: true, autosavePath: dest, originalPath: sidecar?.originalPath || null };
+});
+
+ipcMain.handle('autosave:read', (event, { filePath }) => {
+  const dest = autosavePathFor(filePath || null);
+  try {
+    return fs.readFileSync(dest, 'utf-8');
+  } catch {
+    return null;
+  }
+});
+
+/**
+ * On startup: scan the autosave folder and return any existing entries
+ * so the renderer can check if the current file (or untitled) has a recovery.
+ */
+ipcMain.handle('autosave:listAll', () => {
+  const dir = getAutosaveDir();
+  if (!fs.existsSync(dir)) return [];
+  const results = [];
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith('.fountain')) continue;
+    const full = path.join(dir, name);
+    const sidecar = readSidecar(full);
+    results.push({ autosavePath: full, originalPath: sidecar?.originalPath || null });
+  }
+  return results;
+});
+
 // --- App lifecycle ---
 
 app.whenReady().then(() => {
@@ -207,6 +318,15 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+// The renderer sends this just before the window closes to clean up the
+// autosave for the current file (clean quit, not a crash).
+ipcMain.on('autosave:cleanQuit', (event, { filePath }) => {
+  try {
+    const dest = autosavePathFor(filePath || null);
+    deleteAutosave(dest);
+  } catch {}
 });
 
 app.on('window-all-closed', () => {

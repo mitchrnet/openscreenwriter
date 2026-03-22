@@ -358,6 +358,23 @@ html, body {
   font-weight: 600;
 }
 
+/* Autosave indicator in the status bar */
+#status-autosave {
+  color: var(--muted);
+  font-size: 0.73rem;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+#status-autosave.visible {
+  opacity: 1;
+}
+
+[data-theme='light'] #status-autosave {
+  color: #94a3b8;
+}
+
 /* ---- Element type pill & dropdown ---- */
 #element-dropdown-wrapper {
   position: absolute;
