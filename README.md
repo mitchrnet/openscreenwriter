@@ -102,6 +102,13 @@ Output: `dist/OpenScreenwriter Setup 1.1.0.exe`
 
 ## Changelog
 
+### v1.1.1 — 2026-03-22
+
+**Developer tooling**
+- Added 43 unit tests for the Fountain parser and inline markup renderer (Vitest)
+- Added `npm run dev` script — esbuild in watch mode alongside Electron for faster development iteration
+- Added GitHub Actions CI: unit tests run on every push; Windows installer builds automatically on merges to main
+
 ### v1.1.0 — 2026-03-17
 
 **Layout & formatting fixes**
