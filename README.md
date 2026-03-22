@@ -2,8 +2,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](https://github.com/mitchrnet/openscreenwriter/releases)
+[![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](https://github.com/mitchrnet/openscreenwriter/releases)
 
-A minimalist Electron app for writing screenplays in [Fountain](https://fountain.io/syntax) format, with a WYSIWYG editing surface and Final Draft (FDX) export and import.
+A minimalist Electron app for writing screenplays in [Fountain](https://fountain.io/syntax) format, with a WYSIWYG editing surface and Final Draft (FDX) export and import. Runs on Windows and macOS.
 
 <!-- screenshot -->
 
@@ -81,22 +82,21 @@ Source Mode accepts standard Fountain markup. The WYSIWYG editor handles most el
 
 **Prerequisites:** [Node.js](https://nodejs.org/) 18+
 
+Runs on Windows and macOS.
+
 ```bash
 git clone https://github.com/mitchrnet/openscreenwriter.git
 cd openscreenwriter
 npm install
-npm start
+npm start        # production build + launch
+npm run dev      # watch mode + launch (faster for development)
 ```
 
-**Packaging (Windows installer):**
-
-Run:
+**Packaging:**
 
 ```bash
-npm run dist
+npm run dist     # Windows: outputs dist/OpenScreenwriter Setup x.x.x.exe
 ```
-
-Output: `dist/OpenScreenwriter Setup 1.1.0.exe`
 
 ---
 
