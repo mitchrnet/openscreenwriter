@@ -12,9 +12,12 @@
   "homepage": "https://github.com/mitchrnet/openscreenwriter",
   "scripts": {
     "build": "esbuild renderer/editor/index.js --bundle --outfile=renderer/editor.bundle.js --format=esm --platform=browser",
+    "dev": "esbuild renderer/editor/index.js --bundle --outfile=renderer/editor.bundle.js --format=esm --platform=browser --watch & electron .",
     "start": "npm run build && electron .",
     "dist": "npm run build && electron-builder",
-    "dist:dir": "npm run build && electron-builder --dir"
+    "dist:dir": "npm run build && electron-builder --dir",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "electron": "^34.0.0",
@@ -27,7 +30,7 @@
     "prosemirror-model": "^1.25.4",
     "prosemirror-state": "^1.4.4",
     "prosemirror-transform": "^1.11.0",
-    "prosemirror-view": "^1.41.6"
-  },
-  "dependencies": {}
+    "prosemirror-view": "^1.41.6",
+    "vitest": "^4.1.0"
+  }
 }
