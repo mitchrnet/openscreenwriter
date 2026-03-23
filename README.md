@@ -102,6 +102,22 @@ npm run dist     # Windows: outputs dist/OpenScreenwriter Setup x.x.x.exe
 
 ## Changelog
 
+### v1.1.2 — 2026-03-23
+
+**Autosave**
+- Debounced autosave writes to the real `.fountain` file 2 seconds after you stop typing — no more worrying about unsaved work
+- Spinning "Autosaving..." animation in the status bar transitions to ✓ "Autosaved" on success
+- Autosave toggle button (AS) in the toolbar next to the theme switch; also available in the View menu
+
+**macOS improvements**
+- File / Edit / Insert / View / Help menus now appear correctly on macOS (previously hidden under the app name)
+- `.fountain` file association registered in the installer — set OpenScreenwriter as your default editor via Finder's "Open With"
+- Opening a `.fountain` file from Finder always opens in a new window, preserving your existing document
+
+**Window management**
+- Each window independently tracks its own open document
+- Added **Cmd+N / New Window** to the File menu
+
 ### v1.1.1 — 2026-03-22
 
 **Developer tooling**
