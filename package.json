@@ -19,6 +19,25 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
+  "build": {
+    "appId": "com.mitchrnet.openscreenwriter",
+    "productName": "OpenScreenwriter",
+    "fileAssociations": [
+      {
+        "ext": "fountain",
+        "name": "Fountain Screenplay",
+        "description": "Fountain Screenplay File",
+        "mimeType": "text/plain",
+        "role": "Editor"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  },
   "devDependencies": {
     "electron": "^34.0.0",
     "electron-builder": "^25.0.0",

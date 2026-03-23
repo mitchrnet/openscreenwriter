@@ -32,19 +32,22 @@ import {
 } from './title-page.js';
 import { parseFountain } from '../fountain.js';
 import { tokensToFdx, fdxToFountain } from '../fdx.js';
+import { createAutosaveController } from './autosave.js';
 
 // --- DOM references ---
 const wysiwygMount   = document.getElementById('wysiwyg-editor');
 const sourceEditor   = document.getElementById('source-editor');
 const editorPaper    = document.getElementById('editor-paper');
 const statusFilename = document.getElementById('status-filename');
+const statusAutosave = document.getElementById('status-autosave');
 const statusPages    = document.getElementById('status-pages');
 const btnBold        = document.getElementById('btn-bold');
 const btnItalic      = document.getElementById('btn-italic');
 const btnUnderline   = document.getElementById('btn-underline');
 const btnUndo        = document.getElementById('btn-undo');
 const btnRedo        = document.getElementById('btn-redo');
-const btnThemeToggle = document.getElementById('btn-theme-toggle');
+const btnThemeToggle      = document.getElementById('btn-theme-toggle');
+const btnAutosaveToggle   = document.getElementById('btn-autosave-toggle');
 const elementPill         = document.getElementById('element-pill');
 const elementDropdown     = document.getElementById('element-dropdown');
 const elementDropdownWrap = document.getElementById('element-dropdown-wrapper');
@@ -65,6 +68,7 @@ let isDirty          = false;
 let lastSavedDoc     = null;
 let zoomLevel        = 1.0;
 let currentPageCount = 0;
+let autosave         = null;  // autosave controller, set in init()
 
 // ============================================================
 // Editor creation
@@ -124,6 +128,9 @@ function createEditor(doc) {
         const isClean = lastSavedDoc && newState.doc.eq(lastSavedDoc);
         if (!isClean && !isDirty) setDirty(true);
         else if (isClean && isDirty) setDirty(false);
+
+        // Trigger debounced autosave on every content change
+        if (autosave && !isClean) autosave.notifyChange();
 
         // Scene nav
         if (sidePanel.classList.contains('is-open')) {
@@ -368,9 +375,13 @@ function getFountainText() {
   return getCurrentFountainText();
 }
 
-async function openFile() {
-  const result = await window.screenwriterAPI.openFile();
+async function openFile(preloaded = null) {
+  const result = preloaded || await window.screenwriterAPI.openFile();
   if (!result) return;
+
+  // Always dismiss the startup modal when a file is opened, regardless of how
+  // the open was triggered (menu, file association, Cmd+O while modal is up, etc.)
+  startupModal.style.display = 'none';
 
   // Exit source mode if active
   if (sourceMode) {
@@ -381,7 +392,17 @@ async function openFile() {
   }
 
   const isFdx = result.filePath.toLowerCase().endsWith('.fdx');
-  const fountainText = isFdx ? fdxToFountain(result.content) : result.content;
+  let fountainText = isFdx ? fdxToFountain(result.content) : result.content;
+
+  // Named files no longer use recovery files — autosave writes to the real file directly.
+  // Only check recovery for untitled (FDX import treated as untitled).
+  if (autosave && isFdx) {
+    const recovered = await autosave.checkRecovery(null);
+    if (recovered !== null) {
+      fountainText = recovered;
+    }
+  }
+  if (autosave) autosave.onFilePathChange();
 
   const { doc, titlePageData } = fountainToDoc(fountainText, screenplaySchema);
   setTitlePageData(titlePageData);
@@ -409,6 +430,7 @@ async function openFile() {
 
 async function saveFile() {
   const content = getFountainText();
+  const previousPath = currentFilePath;
   const savedPath = await window.screenwriterAPI.saveFile({
     content,
     filePath: currentFilePath,
@@ -419,10 +441,14 @@ async function saveFile() {
   setCurrentFile(savedPath);
   currentFilePath = savedPath;
   setDirty(false);
+
+  // Clean up autosave after a successful manual save
+  if (autosave) await autosave.onManualSave(savedPath, previousPath);
 }
 
 async function saveFileAs() {
   const content = getFountainText();
+  const previousPath = currentFilePath;
   const savedPath = await window.screenwriterAPI.saveFileAs({ content });
   if (!savedPath) return;
 
@@ -430,6 +456,9 @@ async function saveFileAs() {
   setCurrentFile(savedPath);
   currentFilePath = savedPath;
   setDirty(false);
+
+  // Clean up autosave after a successful Save As
+  if (autosave) await autosave.onManualSave(savedPath, previousPath);
 }
 
 async function exportFdx() {
@@ -529,7 +558,7 @@ document.addEventListener('wheel', e => {
 // Init
 // ============================================================
 
-function init() {
+async function init() {
   // Create initial empty editor
   const { doc } = fountainToDoc('', screenplaySchema);
   createEditor(doc);
@@ -693,9 +722,10 @@ function init() {
     }
   });
 
-  // Source editor dirty tracking
+  // Source editor dirty tracking + autosave trigger
   sourceEditor.addEventListener('input', () => {
     setDirty(true);
+    if (autosave) autosave.notifyChange();
   });
 
   // --- Menu commands from main process ---
@@ -755,8 +785,75 @@ function init() {
     }
   });
 
-  // Show startup modal
+  // --- Autosave ---
+  autosave = createAutosaveController({
+    getContent:  getFountainText,
+    getFilePath: () => currentFilePath,
+    indicatorEl: statusAutosave,
+  });
+
+  // On clean quit, remove the untitled recovery file so we don't offer recovery next launch.
+  // Named files don't need cleanup — the last autosave IS the current file on disk.
+  window.addEventListener('beforeunload', () => {
+    autosave.cleanQuit();
+    autosave.stop();
+  });
+
+  // Autosave toolbar toggle button
+  function updateAutosaveToggleBtn() {
+    const on = autosave.isEnabled();
+    btnAutosaveToggle.classList.toggle('active', on);
+    btnAutosaveToggle.title = on ? 'Autosave: On (click to disable)' : 'Autosave: Off (click to enable)';
+  }
+  btnAutosaveToggle.addEventListener('mousedown', e => e.preventDefault());
+  btnAutosaveToggle.addEventListener('click', () => {
+    autosave.setEnabled(!autosave.isEnabled());
+    updateAutosaveToggleBtn();
+  });
+  updateAutosaveToggleBtn();
+
+  // Toggle autosave from View menu (also updates toolbar button)
+  window.screenwriterAPI.onMenuToggleAutosave((checked) => {
+    autosave.setEnabled(checked);
+    updateAutosaveToggleBtn();
+  });
+
+  // Open a file passed via file-association (macOS open-file / Windows CLI arg)
+  window.screenwriterAPI.onMenuOpenPath(async (filePath) => {
+    const result = await window.screenwriterAPI.readFileByPath({ filePath });
+    if (result) await openFile(result);
+  });
+
+  // Check if the app was launched via file association (double-click in Finder/Explorer).
+  // If so, open the file directly and skip the startup modal.
+  const pendingFile = await window.screenwriterAPI.getPendingFile();
+  if (pendingFile) {
+    const result = await window.screenwriterAPI.readFileByPath({ filePath: pendingFile });
+    if (result) {
+      await openFile(result);
+      return; // startup modal stays hidden
+    }
+  }
+
+  // Check for a recovery on startup (for untitled / no file open yet)
+  // This runs after the startup modal so the editor is ready.
+  // We defer slightly to let the startup modal appear first.
+  setTimeout(async () => {
+    if (startupModal.style.display !== 'none') return; // let startup modal handle it
+    const recovered = await autosave.checkRecovery(null);
+    if (recovered !== null) {
+      const { doc, titlePageData } = fountainToDoc(recovered, screenplaySchema);
+      setTitlePageData(titlePageData);
+      createEditor(doc);
+      refreshTitlePageInEditor(editorPaper);
+      if (editorView) editorView.dispatch(editorView.state.tr);
+      syncSidePanelFromData();
+      setDirty(true);
+    }
+  }, 500);
+
+  // Show startup modal (normal launch — no file specified)
   showStartupModal();
 }
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => init());
