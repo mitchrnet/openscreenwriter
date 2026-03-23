@@ -46,7 +46,8 @@ const btnItalic      = document.getElementById('btn-italic');
 const btnUnderline   = document.getElementById('btn-underline');
 const btnUndo        = document.getElementById('btn-undo');
 const btnRedo        = document.getElementById('btn-redo');
-const btnThemeToggle = document.getElementById('btn-theme-toggle');
+const btnThemeToggle      = document.getElementById('btn-theme-toggle');
+const btnAutosaveToggle   = document.getElementById('btn-autosave-toggle');
 const elementPill         = document.getElementById('element-pill');
 const elementDropdown     = document.getElementById('element-dropdown');
 const elementDropdownWrap = document.getElementById('element-dropdown-wrapper');
@@ -127,6 +128,9 @@ function createEditor(doc) {
         const isClean = lastSavedDoc && newState.doc.eq(lastSavedDoc);
         if (!isClean && !isDirty) setDirty(true);
         else if (isClean && isDirty) setDirty(false);
+
+        // Trigger debounced autosave on every content change
+        if (autosave && !isClean) autosave.notifyChange();
 
         // Scene nav
         if (sidePanel.classList.contains('is-open')) {
@@ -371,8 +375,8 @@ function getFountainText() {
   return getCurrentFountainText();
 }
 
-async function openFile() {
-  const result = await window.screenwriterAPI.openFile();
+async function openFile(preloaded = null) {
+  const result = preloaded || await window.screenwriterAPI.openFile();
   if (!result) return;
 
   // Exit source mode if active
@@ -714,9 +718,10 @@ function init() {
     }
   });
 
-  // Source editor dirty tracking
+  // Source editor dirty tracking + autosave trigger
   sourceEditor.addEventListener('input', () => {
     setDirty(true);
+    if (autosave) autosave.notifyChange();
   });
 
   // --- Menu commands from main process ---
@@ -790,14 +795,29 @@ function init() {
     autosave.stop();
   });
 
-  // Sync the menu checkbox state with localStorage on startup
-  // (The menu defaults to checked=true; if the user previously disabled it, we
-  //  can't update the native menu item from the renderer, but the controller
-  //  reads localStorage directly on each tick, so the preference is respected.)
+  // Autosave toolbar toggle button
+  function updateAutosaveToggleBtn() {
+    const on = autosave.isEnabled();
+    btnAutosaveToggle.classList.toggle('active', on);
+    btnAutosaveToggle.title = on ? 'Autosave: On (click to disable)' : 'Autosave: Off (click to enable)';
+  }
+  btnAutosaveToggle.addEventListener('mousedown', e => e.preventDefault());
+  btnAutosaveToggle.addEventListener('click', () => {
+    autosave.setEnabled(!autosave.isEnabled());
+    updateAutosaveToggleBtn();
+  });
+  updateAutosaveToggleBtn();
 
-  // Toggle autosave from View menu
+  // Toggle autosave from View menu (also updates toolbar button)
   window.screenwriterAPI.onMenuToggleAutosave((checked) => {
     autosave.setEnabled(checked);
+    updateAutosaveToggleBtn();
+  });
+
+  // Open a file passed via file-association (macOS open-file / Windows CLI arg)
+  window.screenwriterAPI.onMenuOpenPath(async (filePath) => {
+    const result = await window.screenwriterAPI.readFileByPath({ filePath });
+    if (result) await openFile(result);
   });
 
   // Check for a recovery on startup (for untitled / no file open yet)

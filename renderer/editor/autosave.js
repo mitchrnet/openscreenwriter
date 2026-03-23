@@ -1,9 +1,10 @@
 /**
  * autosave.js — Autosave controller for OpenScreenwriter
  *
- * Fires every 60 seconds. Only writes if the document content has changed
- * since the last autosave write. Shows a brief "Autosaved" notice in the
- * status bar.
+ * Saves 2 seconds after the last content change (debounced). Call
+ * notifyChange() from the editor's dispatchTransaction/input handler to
+ * trigger the debounce. Only writes if the content has actually changed
+ * since the last autosave write.
  *
  * Behaviour by document state:
  *   Named document (file path known):
@@ -19,7 +20,7 @@
  * "autosaveEnabled". Defaults to true.
  */
 
-const AUTOSAVE_INTERVAL_MS = 60_000;
+const AUTOSAVE_DEBOUNCE_MS = 2_000;
 const INDICATOR_VISIBLE_MS = 2_000;
 const STORAGE_KEY = 'autosaveEnabled';
 
@@ -30,11 +31,11 @@ const STORAGE_KEY = 'autosaveEnabled';
  * @param {() => string}        opts.getContent      - Returns current fountain text
  * @param {() => string|null}   opts.getFilePath     - Returns current file path (or null)
  * @param {HTMLElement}         opts.indicatorEl     - The #status-autosave span element
- * @returns {{ stop, start, onManualSave, onFilePathChange, checkRecovery, cleanQuit, setEnabled, isEnabled }}
+ * @returns {{ stop, notifyChange, onManualSave, onFilePathChange, checkRecovery, cleanQuit, setEnabled, isEnabled }}
  */
 export function createAutosaveController({ getContent, getFilePath, indicatorEl }) {
   let lastSavedContent = null;   // content at last autosave write
-  let intervalId       = null;
+  let debounceTimer    = null;
   let indicatorTimer   = null;
 
   // ----------------------------------------------------------------
@@ -50,7 +51,8 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
   function setEnabled(enabled) {
     localStorage.setItem(STORAGE_KEY, String(enabled));
     if (!enabled) {
-      // Reset so next enable triggers a fresh write if content has changed
+      // Cancel any pending debounce and reset change tracker
+      if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
       lastSavedContent = null;
     }
   }
@@ -70,6 +72,7 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
   }
 
   async function tryAutosave() {
+    debounceTimer = null;
     if (!isEnabled()) return;
 
     const content  = getContent();
@@ -98,17 +101,21 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
   // Public API
   // ----------------------------------------------------------------
 
-  /** Start the periodic autosave timer. */
-  function start() {
-    if (intervalId) return;
-    intervalId = setInterval(tryAutosave, AUTOSAVE_INTERVAL_MS);
+  /**
+   * Call this on every editor content change. Resets the 2-second debounce
+   * timer so that a save fires 2 seconds after the user stops typing.
+   */
+  function notifyChange() {
+    if (!isEnabled()) return;
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(tryAutosave, AUTOSAVE_DEBOUNCE_MS);
   }
 
-  /** Stop the autosave timer (e.g. on app teardown). */
+  /** Cancel the debounce timer and indicator timer (e.g. on app teardown). */
   function stop() {
-    if (intervalId) {
-      clearInterval(intervalId);
-      intervalId = null;
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
     }
     if (indicatorTimer) {
       clearTimeout(indicatorTimer);
@@ -119,13 +126,16 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
   /**
    * Call after a successful manual save.
    * For untitled→named transitions, deletes the untitled recovery file.
-   * Resets the change tracker so the next autosave tick is a no-op.
+   * Resets the change tracker so the next debounce fires only if content changes.
    *
    * @param {string}      savedFilePath - The path just written to
    * @param {string|null} previousPath  - The file path before this save (null if untitled)
    */
   async function onManualSave(savedFilePath, previousPath) {
-    // Capture current content so the next autosave tick skips if nothing changed
+    // Cancel any pending debounce — the file is already saved manually
+    if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+
+    // Capture current content so the next notifyChange/debounce skips if nothing changed
     lastSavedContent = getContent();
 
     // If the document was untitled before this save, clean up the untitled recovery file
@@ -136,7 +146,7 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
 
   /**
    * Call when the active file path changes (e.g. on open).
-   * Resets the last-saved content so the next tick compares fresh.
+   * Resets the last-saved content so the next notifyChange writes fresh.
    */
   function onFilePathChange() {
     lastSavedContent = null;
@@ -183,11 +193,11 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
    * the last autosave IS the current file content.
    */
   function cleanQuit() {
+    // Cancel any pending debounce — we're quitting
+    if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
     // Only clean up untitled recovery files; named files are already correct on disk
     window.screenwriterAPI.autosaveCleanQuit({ filePath: null });
   }
 
-  start();
-
-  return { stop, start, onManualSave, onFilePathChange, checkRecovery, cleanQuit, setEnabled, isEnabled };
+  return { stop, notifyChange, onManualSave, onFilePathChange, checkRecovery, cleanQuit, setEnabled, isEnabled };
 }

@@ -6,7 +6,28 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 let mainWindow;
-let currentFilePath = null;
+let currentFilePath  = null;
+let pendingFilePath  = null;  // set by open-file before window is ready
+
+// Capture macOS open-file events (fires before app.whenReady on cold launch)
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('menu:openPath', filePath);
+  } else {
+    pendingFilePath = filePath;
+  }
+});
+
+/**
+ * On Windows, a file opened via file-association is passed as a CLI argument.
+ * Returns the first .fountain arg, or null.
+ */
+function getArgFilePath() {
+  if (process.platform === 'darwin') return null;
+  const args = process.argv.slice(app.isPackaged ? 1 : 2);
+  return args.find(a => !a.startsWith('-') && /\.fountain$/i.test(a)) || null;
+}
 
 // --- Autosave helpers ---
 
@@ -74,10 +95,38 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  // Send any pending file path (open-file / Windows CLI arg) once renderer is ready
+  mainWindow.webContents.once('did-finish-load', () => {
+    const toOpen = pendingFilePath || getArgFilePath();
+    pendingFilePath = null;
+    if (toOpen) mainWindow.webContents.send('menu:openPath', toOpen);
+  });
 }
 
 function buildMenu() {
+  const isMac = process.platform === 'darwin';
+
   const template = [
+    // macOS app menu (OpenScreenwriter > About, Services, Hide, Quit…)
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        {
+          label: 'About OpenScreenwriter',
+          click: () => mainWindow.webContents.send('menu:about'),
+        },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    }] : []),
+
     {
       label: 'File',
       submenu: [
@@ -103,7 +152,8 @@ function buildMenu() {
           click: () => mainWindow.webContents.send('menu:exportFdx'),
         },
         { type: 'separator' },
-        { role: 'quit' },
+        // Quit lives in the app menu on macOS; show it in File on Windows/Linux
+        ...(isMac ? [] : [{ role: 'quit' }]),
       ],
     },
     { label: 'Edit', role: 'editMenu' },
@@ -155,9 +205,14 @@ function buildMenu() {
     {
       label: 'Help',
       submenu: [
-        {
+        // About is in the app menu on macOS; keep it in Help on Windows/Linux
+        ...(isMac ? [] : [{
           label: 'About OpenScreenwriter',
           click: () => mainWindow.webContents.send('menu:about'),
+        }]),
+        {
+          label: 'View on GitHub',
+          click: () => shell.openExternal('https://github.com/mitchrnet/openscreenwriter'),
         },
       ],
     },
@@ -248,6 +303,20 @@ ipcMain.handle('dialog:exportFdx', async (event, { fdxContent }) => {
 });
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
+
+/**
+ * Read a file directly by path (no dialog). Used by file-association opens
+ * (macOS open-file event / Windows CLI arg) where the path is already known.
+ */
+ipcMain.handle('file:readPath', (event, { filePath }) => {
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    currentFilePath = filePath;
+    return { filePath, content };
+  } catch {
+    return null;
+  }
+});
 
 ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url));
 
