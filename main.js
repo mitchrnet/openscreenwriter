@@ -5,16 +5,22 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
-let mainWindow;
-let currentFilePath  = null;
-let pendingFilePath  = null;  // set by open-file before window is ready
+// Per-window state
+const filePathByWindow  = new Map(); // windowId → current file path (or null)
+const windowFileToOpen  = new Map(); // windowId → file path to pass to renderer on first init
 
-// Capture macOS open-file events (fires before app.whenReady on cold launch)
+let pendingFilePath = null; // set by open-file before any window exists
+
+// ─── File-association event handling ────────────────────────────────────────
+
+// Must be registered before app.whenReady() to catch early macOS open-file events
 app.on('open-file', (event, filePath) => {
   event.preventDefault();
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('menu:openPath', filePath);
+  if (app.isReady()) {
+    // App already running — always open in a new window so the existing document is safe
+    createWindow(filePath);
   } else {
+    // Cold launch — store for first window to pick up via getPendingFile IPC
     pendingFilePath = filePath;
   }
 });
@@ -29,25 +35,32 @@ function getArgFilePath() {
   return args.find(a => !a.startsWith('-') && /\.fountain$/i.test(a)) || null;
 }
 
-// --- Autosave helpers ---
+// ─── Per-window helpers ──────────────────────────────────────────────────────
 
-/**
- * Return the autosave directory inside userData.
- * Creates it on first call if it doesn't exist.
- */
+function getWin(event) {
+  return BrowserWindow.fromWebContents(event.sender);
+}
+
+function getFocusedWin() {
+  return BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+}
+
+function getFilePath(win) {
+  return filePathByWindow.get(win.id) ?? null;
+}
+
+function setFilePath(win, filePath) {
+  filePathByWindow.set(win.id, filePath);
+}
+
+// ─── Autosave helpers ────────────────────────────────────────────────────────
+
 function getAutosaveDir() {
   const dir = path.join(app.getPath('userData'), 'autosave');
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
 
-/**
- * Map an original file path (or null for untitled) to a stable
- * autosave filename. Uses a SHA-1 hex of the full path so the
- * mapping is deterministic and filesystem-safe.
- */
 function autosavePathFor(filePath) {
   const key = filePath
     ? crypto.createHash('sha1').update(filePath).digest('hex')
@@ -55,10 +68,6 @@ function autosavePathFor(filePath) {
   return path.join(getAutosaveDir(), `${key}.fountain`);
 }
 
-/**
- * Persist a small JSON sidecar alongside the autosave so we know
- * which original path the blob belongs to.
- */
 function writeSidecar(autosavePath, originalPath) {
   const sidecar = autosavePath + '.json';
   fs.writeFileSync(sidecar, JSON.stringify({ originalPath: originalPath || null }), 'utf-8');
@@ -66,11 +75,7 @@ function writeSidecar(autosavePath, originalPath) {
 
 function readSidecar(autosavePath) {
   const sidecar = autosavePath + '.json';
-  try {
-    return JSON.parse(fs.readFileSync(sidecar, 'utf-8'));
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(fs.readFileSync(sidecar, 'utf-8')); } catch { return null; }
 }
 
 function deleteAutosave(autosavePath) {
@@ -78,8 +83,14 @@ function deleteAutosave(autosavePath) {
   try { fs.unlinkSync(autosavePath + '.json'); } catch {}
 }
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
+// ─── Window creation ─────────────────────────────────────────────────────────
+
+/**
+ * Create a new editor window.
+ * @param {string|null} fileToOpen  Optional file to open instead of showing the startup modal.
+ */
+function createWindow(fileToOpen = null) {
+  const win = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 900,
@@ -94,21 +105,35 @@ function createWindow() {
     },
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  filePathByWindow.set(win.id, null);
+  if (fileToOpen) windowFileToOpen.set(win.id, fileToOpen);
+
+  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  win.on('closed', () => {
+    filePathByWindow.delete(win.id);
+    windowFileToOpen.delete(win.id);
+  });
+
+  return win;
 }
+
+// ─── Menu ────────────────────────────────────────────────────────────────────
 
 function buildMenu() {
   const isMac = process.platform === 'darwin';
 
+  // Menu item clicks are routed to the focused window
+  const send = (channel, ...args) => () => {
+    const win = getFocusedWin();
+    if (win) win.webContents.send(channel, ...args);
+  };
+
   const template = [
-    // macOS app menu (OpenScreenwriter > About, Services, Hide, Quit…)
     ...(isMac ? [{
       label: app.name,
       submenu: [
-        {
-          label: 'About OpenScreenwriter',
-          click: () => mainWindow.webContents.send('menu:about'),
-        },
+        { label: 'About OpenScreenwriter', click: send('menu:about') },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -119,33 +144,17 @@ function buildMenu() {
         { role: 'quit' },
       ],
     }] : []),
-
     {
       label: 'File',
       submenu: [
-        {
-          label: 'Open...',
-          accelerator: 'CmdOrCtrl+O',
-          click: () => mainWindow.webContents.send('menu:open'),
-        },
-        {
-          label: 'Save',
-          accelerator: 'CmdOrCtrl+S',
-          click: () => mainWindow.webContents.send('menu:save'),
-        },
-        {
-          label: 'Save As...',
-          accelerator: 'CmdOrCtrl+Shift+S',
-          click: () => mainWindow.webContents.send('menu:saveAs'),
-        },
+        { label: 'New Window', accelerator: 'CmdOrCtrl+N', click: () => createWindow() },
         { type: 'separator' },
-        {
-          label: 'Export as FDX...',
-          accelerator: 'CmdOrCtrl+E',
-          click: () => mainWindow.webContents.send('menu:exportFdx'),
-        },
+        { label: 'Open...', accelerator: 'CmdOrCtrl+O', click: send('menu:open') },
+        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: send('menu:save') },
+        { label: 'Save As...', accelerator: 'CmdOrCtrl+Shift+S', click: send('menu:saveAs') },
         { type: 'separator' },
-        // Quit lives in the app menu on macOS; show it in File on Windows/Linux
+        { label: 'Export as FDX...', accelerator: 'CmdOrCtrl+E', click: send('menu:exportFdx') },
+        { type: 'separator' },
         ...(isMac ? [] : [{ role: 'quit' }]),
       ],
     },
@@ -153,35 +162,25 @@ function buildMenu() {
     {
       label: 'Insert',
       submenu: [
-        {
-          label: 'Title Page...',
-          click: () => mainWindow.webContents.send('menu:insertTitlePage'),
-        },
+        { label: 'Title Page...', click: send('menu:insertTitlePage') },
         { type: 'separator' },
-        {
-          label: 'Page Break',
-          click: () => mainWindow.webContents.send('menu:insertPageBreak'),
-        },
-        {
-          label: 'Line Break',
-          click: () => mainWindow.webContents.send('menu:insertLineBreak'),
-        },
+        { label: 'Page Break', click: send('menu:insertPageBreak') },
+        { label: 'Line Break', click: send('menu:insertLineBreak') },
       ],
     },
     {
       label: 'View',
       submenu: [
-        {
-          label: 'Source Mode',
-          accelerator: 'CmdOrCtrl+Shift+M',
-          click: () => mainWindow.webContents.send('menu:toggleSourceMode'),
-        },
+        { label: 'Source Mode', accelerator: 'CmdOrCtrl+Shift+M', click: send('menu:toggleSourceMode') },
         { type: 'separator' },
         {
           label: 'Autosave',
           type: 'checkbox',
           checked: true,
-          click: (menuItem) => mainWindow.webContents.send('menu:toggleAutosave', menuItem.checked),
+          click: (menuItem) => {
+            const win = getFocusedWin();
+            if (win) win.webContents.send('menu:toggleAutosave', menuItem.checked);
+          },
         },
         { type: 'separator' },
         { role: 'reload' },
@@ -198,15 +197,8 @@ function buildMenu() {
     {
       label: 'Help',
       submenu: [
-        // About is in the app menu on macOS; keep it in Help on Windows/Linux
-        ...(isMac ? [] : [{
-          label: 'About OpenScreenwriter',
-          click: () => mainWindow.webContents.send('menu:about'),
-        }]),
-        {
-          label: 'View on GitHub',
-          click: () => shell.openExternal('https://github.com/mitchrnet/openscreenwriter'),
-        },
+        ...(isMac ? [] : [{ label: 'About OpenScreenwriter', click: send('menu:about') }]),
+        { label: 'View on GitHub', click: () => shell.openExternal('https://github.com/mitchrnet/openscreenwriter') },
       ],
     },
   ];
@@ -214,10 +206,11 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-// --- IPC Handlers ---
+// ─── IPC Handlers ────────────────────────────────────────────────────────────
 
-ipcMain.handle('dialog:openFile', async () => {
-  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+ipcMain.handle('dialog:openFile', async (event) => {
+  const win = getWin(event);
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
     filters: [
       { name: 'Screenplay', extensions: ['fountain', 'fdx', 'txt'] },
       { name: 'All Files', extensions: ['*'] },
@@ -227,84 +220,73 @@ ipcMain.handle('dialog:openFile', async () => {
   if (canceled || filePaths.length === 0) return null;
   const filePath = filePaths[0];
   let content;
-  try {
-    content = fs.readFileSync(filePath, 'utf-8');
-  } catch (err) {
-    return null;
-  }
+  try { content = fs.readFileSync(filePath, 'utf-8'); } catch { return null; }
   const isFdx = path.extname(filePath).toLowerCase() === '.fdx';
-  currentFilePath = isFdx ? null : filePath;
+  setFilePath(win, isFdx ? null : filePath);
   return { filePath, content };
 });
 
 ipcMain.handle('dialog:saveFile', async (event, { content, filePath }) => {
-  const targetPath = filePath || currentFilePath;
+  const win = getWin(event);
+  const targetPath = filePath || getFilePath(win);
   if (!targetPath) {
-    // No path yet — fall through to Save As
-    const { canceled, filePath: chosen } = await dialog.showSaveDialog(mainWindow, {
+    const { canceled, filePath: chosen } = await dialog.showSaveDialog(win, {
       defaultPath: 'untitled.fountain',
       filters: [{ name: 'Fountain', extensions: ['fountain'] }],
     });
     if (canceled || !chosen) return null;
-    try {
-      fs.writeFileSync(chosen, content, 'utf-8');
-    } catch (err) {
-      return null;
-    }
-    currentFilePath = chosen;
+    try { fs.writeFileSync(chosen, content, 'utf-8'); } catch { return null; }
+    setFilePath(win, chosen);
     return chosen;
   }
-  try {
-    fs.writeFileSync(targetPath, content, 'utf-8');
-  } catch (err) {
-    return null;
-  }
-  currentFilePath = targetPath;
+  try { fs.writeFileSync(targetPath, content, 'utf-8'); } catch { return null; }
+  setFilePath(win, targetPath);
   return targetPath;
 });
 
 ipcMain.handle('dialog:saveFileAs', async (event, { content }) => {
-  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-    defaultPath: currentFilePath || 'untitled.fountain',
+  const win = getWin(event);
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    defaultPath: getFilePath(win) || 'untitled.fountain',
     filters: [{ name: 'Fountain', extensions: ['fountain'] }],
   });
   if (canceled || !filePath) return null;
-  try {
-    fs.writeFileSync(filePath, content, 'utf-8');
-  } catch (err) {
-    return null;
-  }
-  currentFilePath = filePath;
+  try { fs.writeFileSync(filePath, content, 'utf-8'); } catch { return null; }
+  setFilePath(win, filePath);
   return filePath;
 });
 
 ipcMain.handle('dialog:exportFdx', async (event, { fdxContent }) => {
-  const base = currentFilePath
-    ? path.basename(currentFilePath, path.extname(currentFilePath))
+  const win = getWin(event);
+  const currentPath = getFilePath(win);
+  const base = currentPath
+    ? path.basename(currentPath, path.extname(currentPath))
     : 'screenplay';
-  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
     defaultPath: `${base}.fdx`,
     filters: [{ name: 'Final Draft', extensions: ['fdx'] }],
   });
   if (canceled || !filePath) return null;
-  try {
-    fs.writeFileSync(filePath, fdxContent, 'utf-8');
-  } catch (err) {
-    return null;
-  }
+  try { fs.writeFileSync(filePath, fdxContent, 'utf-8'); } catch { return null; }
   return filePath;
 });
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
 
+ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url));
+
+ipcMain.handle('window:setTitle', (event, { title }) => {
+  getWin(event).setTitle(title);
+});
+
 /**
- * Read a file directly by path (no dialog). Used by file-association opens
- * (macOS open-file event / Windows CLI arg) where the path is already known.
+ * Read a file directly by path (no dialog). Used when a file path is already
+ * known (file-association open, CLI arg).
  */
 ipcMain.handle('file:readPath', (event, { filePath }) => {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
-    currentFilePath = filePath;
+    setFilePath(getWin(event), filePath);
     return { filePath, content };
   } catch {
     return null;
@@ -312,37 +294,31 @@ ipcMain.handle('file:readPath', (event, { filePath }) => {
 });
 
 /**
- * Called by the renderer during init to check whether the app was launched
- * with a specific file (file-association double-click or CLI arg). Returns the
- * file path string if one is pending, or null. Clears pendingFilePath so it is
- * only consumed once.
+ * Called by the renderer during init. Returns a file path if this window was
+ * created to open a specific file (file-association / CLI arg), or null for a
+ * normal startup.
  */
-ipcMain.handle('app:getPendingFile', () => {
+ipcMain.handle('app:getPendingFile', (event) => {
+  const win = getWin(event);
+
+  // Check if this window was created specifically to open a file
+  const windowFile = windowFileToOpen.get(win.id);
+  if (windowFile) {
+    windowFileToOpen.delete(win.id);
+    return windowFile;
+  }
+
+  // Check global pending (set by open-file on cold launch before any window existed)
   const filePath = pendingFilePath || getArgFilePath();
   pendingFilePath = null;
   return filePath || null;
 });
 
-ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url));
+// ─── Autosave IPC ────────────────────────────────────────────────────────────
 
-ipcMain.handle('window:setTitle', async (event, { title }) => {
-  mainWindow.setTitle(title);
-});
-
-// --- Autosave IPC ---
-
-/**
- * Write content directly to a named .fountain file (no dialog).
- * Used by autosave for documents that already have a file path.
- */
 ipcMain.handle('autosave:writeRealFile', (event, { content, filePath }) => {
   if (!filePath) return false;
-  try {
-    fs.writeFileSync(filePath, content, 'utf-8');
-    return true;
-  } catch {
-    return false;
-  }
+  try { fs.writeFileSync(filePath, content, 'utf-8'); return true; } catch { return false; }
 });
 
 ipcMain.handle('autosave:write', (event, { content, filePath }) => {
@@ -351,26 +327,13 @@ ipcMain.handle('autosave:write', (event, { content, filePath }) => {
     fs.writeFileSync(dest, content, 'utf-8');
     writeSidecar(dest, filePath || null);
     return true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 });
 
 ipcMain.handle('autosave:delete', (event, { filePath }) => {
-  try {
-    const dest = autosavePathFor(filePath || null);
-    deleteAutosave(dest);
-    return true;
-  } catch {
-    return false;
-  }
+  try { deleteAutosave(autosavePathFor(filePath || null)); return true; } catch { return false; }
 });
 
-/**
- * Check whether an autosave exists for the given filePath (or untitled).
- * Returns { exists: bool, autosavePath, originalPath } so the renderer
- * can offer recovery without exposing raw fs paths unnecessarily.
- */
 ipcMain.handle('autosave:check', (event, { filePath }) => {
   const dest = autosavePathFor(filePath || null);
   if (!fs.existsSync(dest)) return { exists: false };
@@ -380,17 +343,9 @@ ipcMain.handle('autosave:check', (event, { filePath }) => {
 
 ipcMain.handle('autosave:read', (event, { filePath }) => {
   const dest = autosavePathFor(filePath || null);
-  try {
-    return fs.readFileSync(dest, 'utf-8');
-  } catch {
-    return null;
-  }
+  try { return fs.readFileSync(dest, 'utf-8'); } catch { return null; }
 });
 
-/**
- * On startup: scan the autosave folder and return any existing entries
- * so the renderer can check if the current file (or untitled) has a recovery.
- */
 ipcMain.handle('autosave:listAll', () => {
   const dir = getAutosaveDir();
   if (!fs.existsSync(dir)) return [];
@@ -404,24 +359,20 @@ ipcMain.handle('autosave:listAll', () => {
   return results;
 });
 
-// --- App lifecycle ---
+ipcMain.on('autosave:cleanQuit', (event, { filePath }) => {
+  try { deleteAutosave(autosavePathFor(filePath || null)); } catch {}
+});
+
+// ─── App lifecycle ───────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
   buildMenu();
   createWindow();
 
+  // On macOS: re-create a window if the dock icon is clicked with no windows open
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-});
-
-// The renderer sends this just before the window closes to clean up the
-// autosave for the current file (clean quit, not a crash).
-ipcMain.on('autosave:cleanQuit', (event, { filePath }) => {
-  try {
-    const dest = autosavePathFor(filePath || null);
-    deleteAutosave(dest);
-  } catch {}
 });
 
 app.on('window-all-closed', () => {
