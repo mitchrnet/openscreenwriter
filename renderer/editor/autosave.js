@@ -20,8 +20,9 @@
  * "autosaveEnabled". Defaults to true.
  */
 
-const AUTOSAVE_DEBOUNCE_MS = 2_000;
-const INDICATOR_VISIBLE_MS = 2_000;
+const AUTOSAVE_DEBOUNCE_MS   = 2_000;
+const INDICATOR_SAVING_MS    = 700;   // minimum time the spinner shows before "Autosaved"
+const INDICATOR_VISIBLE_MS   = 2_000; // how long "Autosaved" lingers before fading
 const STORAGE_KEY = 'autosaveEnabled';
 
 /**
@@ -102,8 +103,10 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
 
     showIndicator('saving');
 
-    let ok = false;
+    // Run the write and the minimum spinner display time concurrently
+    const minDelay = new Promise(r => setTimeout(r, INDICATOR_SAVING_MS));
 
+    let ok = false;
     if (filePath) {
       // Named document — write directly to the real file
       ok = await window.screenwriterAPI.autosaveWriteRealFile({ content, filePath });
@@ -111,6 +114,9 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
       // Untitled document — write to the recovery location
       ok = await window.screenwriterAPI.autosaveWrite({ content, filePath: null });
     }
+
+    // Wait for the minimum spinner time so the animation is always visible
+    await minDelay;
 
     if (ok) {
       lastSavedContent = content;

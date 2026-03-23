@@ -379,6 +379,10 @@ async function openFile(preloaded = null) {
   const result = preloaded || await window.screenwriterAPI.openFile();
   if (!result) return;
 
+  // Always dismiss the startup modal when a file is opened, regardless of how
+  // the open was triggered (menu, file association, Cmd+O while modal is up, etc.)
+  startupModal.style.display = 'none';
+
   // Exit source mode if active
   if (sourceMode) {
     sourceMode = false;
