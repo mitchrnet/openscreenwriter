@@ -35,8 +35,8 @@ function makeIndicator() {
   return {
     textContent: '',
     classList: {
-      add:    (c) => classes.add(c),
-      remove: (c) => classes.delete(c),
+      add:    (...cs) => cs.forEach(c => classes.add(c)),
+      remove: (...cs) => cs.forEach(c => classes.delete(c)),
       has:    (c) => classes.has(c),
     },
     _classes: classes,
@@ -97,14 +97,26 @@ function createAutosaveController({
     }
   }
 
-  function showIndicator(text = 'Autosaved') {
+  function showIndicator(phase) {
     if (!indicatorEl) return;
-    indicatorEl.textContent = text;
-    indicatorEl.classList.add('visible');
-    if (indicatorTimer) clearTimeout(indicatorTimer);
-    indicatorTimer = setTimeout(() => {
-      indicatorEl.classList.remove('visible');
-    }, indicatorVisibleMs);
+    if (indicatorTimer) { clearTimeout(indicatorTimer); indicatorTimer = null; }
+    indicatorEl.classList.remove('autosaving', 'autosaved');
+    if (phase === 'saving') {
+      indicatorEl.textContent = 'Autosaving...';
+      indicatorEl.classList.add('visible', 'autosaving');
+    } else {
+      indicatorEl.textContent = 'Autosaved';
+      indicatorEl.classList.add('visible', 'autosaved');
+      indicatorTimer = setTimeout(() => {
+        indicatorEl.classList.remove('visible', 'autosaved');
+      }, indicatorVisibleMs);
+    }
+  }
+
+  function hideIndicator() {
+    if (!indicatorEl) return;
+    if (indicatorTimer) { clearTimeout(indicatorTimer); indicatorTimer = null; }
+    indicatorEl.classList.remove('visible', 'autosaving', 'autosaved');
   }
 
   async function tryAutosave() {
@@ -113,6 +125,8 @@ function createAutosaveController({
     const content  = getContent();
     const filePath = getFilePath();
     if (content === lastSavedContent) return;
+
+    showIndicator('saving');
 
     let ok = false;
     if (filePath) {
@@ -123,7 +137,9 @@ function createAutosaveController({
 
     if (ok) {
       lastSavedContent = content;
-      showIndicator('Autosaved');
+      showIndicator('saved');
+    } else {
+      hideIndicator();
     }
   }
 
@@ -459,7 +475,11 @@ describe('autosave controller', () => {
 
   // ── Indicator ─────────────────────────────────────────────────────────────
 
-  it('shows the indicator after a successful autosave', async () => {
+  it('shows "Autosaving..." spinner during the write, then "Autosaved" on success', async () => {
+    // Use a promise to intercept the write and inspect mid-flight state
+    let resolveWrite;
+    api.autosaveWrite = vi.fn().mockReturnValue(new Promise(r => { resolveWrite = r; }));
+
     const ctrl = createAutosaveController({
       getContent:  () => 'text',
       getFilePath: () => null,
@@ -468,9 +488,22 @@ describe('autosave controller', () => {
     });
 
     ctrl.notifyChange();
-    await tick(1_000);
+    await tick(1_000); // debounce fires, tryAutosave starts
 
+    // Mid-flight: should show "Autosaving..." with autosaving class
+    expect(indicator.textContent).toBe('Autosaving...');
+    expect(indicator._classes.has('autosaving')).toBe(true);
+    expect(indicator._classes.has('visible')).toBe(true);
+
+    // Resolve the write
+    resolveWrite(true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // After write: should show "Autosaved" with autosaved class
     expect(indicator.textContent).toBe('Autosaved');
+    expect(indicator._classes.has('autosaved')).toBe(true);
+    expect(indicator._classes.has('autosaving')).toBe(false);
     expect(indicator._classes.has('visible')).toBe(true);
   });
 
@@ -492,7 +525,7 @@ describe('autosave controller', () => {
     expect(indicator._classes.has('visible')).toBe(false);
   });
 
-  it('does NOT show indicator when write fails', async () => {
+  it('hides indicator when write fails', async () => {
     api = makeApi({ writeOk: false });
     const ctrl = createAutosaveController({
       getContent:  () => 'text',

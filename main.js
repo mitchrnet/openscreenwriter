@@ -95,13 +95,6 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-
-  // Send any pending file path (open-file / Windows CLI arg) once renderer is ready
-  mainWindow.webContents.once('did-finish-load', () => {
-    const toOpen = pendingFilePath || getArgFilePath();
-    pendingFilePath = null;
-    if (toOpen) mainWindow.webContents.send('menu:openPath', toOpen);
-  });
 }
 
 function buildMenu() {
@@ -316,6 +309,18 @@ ipcMain.handle('file:readPath', (event, { filePath }) => {
   } catch {
     return null;
   }
+});
+
+/**
+ * Called by the renderer during init to check whether the app was launched
+ * with a specific file (file-association double-click or CLI arg). Returns the
+ * file path string if one is pending, or null. Clears pendingFilePath so it is
+ * only consumed once.
+ */
+ipcMain.handle('app:getPendingFile', () => {
+  const filePath = pendingFilePath || getArgFilePath();
+  pendingFilePath = null;
+  return filePath || null;
 });
 
 ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url));

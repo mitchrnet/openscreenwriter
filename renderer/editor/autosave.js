@@ -61,14 +61,33 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
   // Internal helpers
   // ----------------------------------------------------------------
 
-  function showIndicator(text = 'Autosaved') {
+  /**
+   * Show the autosave indicator.
+   * @param {'saving'|'saved'} phase
+   */
+  function showIndicator(phase) {
     if (!indicatorEl) return;
-    indicatorEl.textContent = text;
-    indicatorEl.classList.add('visible');
-    if (indicatorTimer) clearTimeout(indicatorTimer);
-    indicatorTimer = setTimeout(() => {
-      indicatorEl.classList.remove('visible');
-    }, INDICATOR_VISIBLE_MS);
+    if (indicatorTimer) { clearTimeout(indicatorTimer); indicatorTimer = null; }
+
+    indicatorEl.classList.remove('autosaving', 'autosaved');
+
+    if (phase === 'saving') {
+      indicatorEl.textContent = 'Autosaving...';
+      indicatorEl.classList.add('visible', 'autosaving');
+      // No auto-hide during saving — will transition to 'saved' or be hidden on failure
+    } else {
+      indicatorEl.textContent = 'Autosaved';
+      indicatorEl.classList.add('visible', 'autosaved');
+      indicatorTimer = setTimeout(() => {
+        indicatorEl.classList.remove('visible', 'autosaved');
+      }, INDICATOR_VISIBLE_MS);
+    }
+  }
+
+  function hideIndicator() {
+    if (!indicatorEl) return;
+    if (indicatorTimer) { clearTimeout(indicatorTimer); indicatorTimer = null; }
+    indicatorEl.classList.remove('visible', 'autosaving', 'autosaved');
   }
 
   async function tryAutosave() {
@@ -80,6 +99,8 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
 
     // Only write if content has changed since last autosave
     if (content === lastSavedContent) return;
+
+    showIndicator('saving');
 
     let ok = false;
 
@@ -93,7 +114,9 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
 
     if (ok) {
       lastSavedContent = content;
-      showIndicator('Autosaved');
+      showIndicator('saved');
+    } else {
+      hideIndicator();
     }
   }
 
@@ -111,16 +134,10 @@ export function createAutosaveController({ getContent, getFilePath, indicatorEl 
     debounceTimer = setTimeout(tryAutosave, AUTOSAVE_DEBOUNCE_MS);
   }
 
-  /** Cancel the debounce timer and indicator timer (e.g. on app teardown). */
+  /** Cancel the debounce and indicator timers (e.g. on app teardown). */
   function stop() {
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-      debounceTimer = null;
-    }
-    if (indicatorTimer) {
-      clearTimeout(indicatorTimer);
-      indicatorTimer = null;
-    }
+    if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+    if (indicatorTimer) { clearTimeout(indicatorTimer); indicatorTimer = null; }
   }
 
   /**

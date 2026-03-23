@@ -554,7 +554,7 @@ document.addEventListener('wheel', e => {
 // Init
 // ============================================================
 
-function init() {
+async function init() {
   // Create initial empty editor
   const { doc } = fountainToDoc('', screenplaySchema);
   createEditor(doc);
@@ -820,6 +820,17 @@ function init() {
     if (result) await openFile(result);
   });
 
+  // Check if the app was launched via file association (double-click in Finder/Explorer).
+  // If so, open the file directly and skip the startup modal.
+  const pendingFile = await window.screenwriterAPI.getPendingFile();
+  if (pendingFile) {
+    const result = await window.screenwriterAPI.readFileByPath({ filePath: pendingFile });
+    if (result) {
+      await openFile(result);
+      return; // startup modal stays hidden
+    }
+  }
+
   // Check for a recovery on startup (for untitled / no file open yet)
   // This runs after the startup modal so the editor is ready.
   // We defer slightly to let the startup modal appear first.
@@ -837,8 +848,8 @@ function init() {
     }
   }, 500);
 
-  // Show startup modal
+  // Show startup modal (normal launch — no file specified)
   showStartupModal();
 }
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => init());

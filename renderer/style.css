@@ -365,14 +365,45 @@ html, body {
   opacity: 0;
   transition: opacity 0.3s ease;
   pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 #status-autosave.visible {
   opacity: 1;
 }
 
+/* Spinning wheel shown during the write */
+#status-autosave.autosaving::before {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--muted);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: as-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+/* Checkmark shown after a successful write */
+#status-autosave.autosaved::before {
+  content: '✓';
+  font-size: 0.75rem;
+}
+
+@keyframes as-spin {
+  to { transform: rotate(360deg); }
+}
+
 [data-theme='light'] #status-autosave {
   color: #94a3b8;
+}
+
+[data-theme='light'] #status-autosave.autosaving::before {
+  border-color: #94a3b8;
+  border-top-color: transparent;
 }
 
 /* ---- Element type pill & dropdown ---- */

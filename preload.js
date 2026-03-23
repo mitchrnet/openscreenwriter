@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('screenwriterAPI', {
   getVersion:      ()        => ipcRenderer.invoke('app:getVersion'),
   openExternal:    (url)     => ipcRenderer.invoke('shell:openExternal', url),
   readFileByPath:  (payload) => ipcRenderer.invoke('file:readPath', payload),
+  getPendingFile:  ()        => ipcRenderer.invoke('app:getPendingFile'),
 
   // Autosave
   autosaveWriteRealFile: (payload) => ipcRenderer.invoke('autosave:writeRealFile', payload),
