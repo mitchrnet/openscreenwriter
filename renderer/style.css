@@ -336,7 +336,7 @@ html, body {
 #statusbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.75rem;
   padding: 0 1rem;
   height: 28px;
   font-size: 0.73rem;
@@ -345,6 +345,13 @@ html, body {
   border-top: 1px solid var(--border);
   flex-shrink: 0;
   user-select: none;
+}
+
+#status-counts {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-left: auto;
 }
 
 #status-filename.dirty {
@@ -1096,4 +1103,76 @@ body[data-theme="light"] .sp-toggle-btn.active {
 
 #about-card .startup-action-btn {
   width: 100%;
+}
+
+/* ---- Autosave toggle ON/OFF label ---- */
+.autosave-status.on  { color: #22c55e; font-weight: 700; }
+.autosave-status.off { color: #ef4444; font-weight: 700; }
+
+/* ============================================================
+   Print / PDF export
+   ============================================================ */
+
+/* Screenplay page size and margins — applied during printToPDF */
+@page {
+  size: letter;
+  /* 1in top/right/bottom, 1.5in left (binding margin) — matches editor-paper padding */
+  margin: 1in 1in 1in 1.5in;
+}
+
+@media print {
+  /* Hide app chrome */
+  #toolbar,
+  #statusbar,
+  #side-panel {
+    display: none !important;
+  }
+
+  body, html {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Flatten flex layout so paper fills the page */
+  #editor-container {
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  #editor-pane {
+    padding: 0 !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  /* Paper: @page handles margins, so zero out paper padding to avoid doubling */
+  #editor-paper {
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+    min-height: 0 !important;
+  }
+
+  /* Page break markers: JS sets inline page-break-before:always before printToPDF.
+     Hide the visual chrome (gutter bg, label, box-shadow). */
+  .ws-page-break-marker {
+    height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    animation: none !important;
+  }
+  .ws-page-break-marker::after {
+    display: none !important;
+  }
+
+  /* Hide editor page number labels and manual-break atoms */
+  .ws-page-number,
+  .ws-page-break-atom {
+    display: none !important;
+  }
 }

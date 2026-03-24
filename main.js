@@ -3,6 +3,7 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const crypto = require('crypto');
 
 // Per-window state
@@ -198,6 +199,7 @@ function buildMenu() {
         { label: 'Save As...', accelerator: 'CmdOrCtrl+Shift+S', click: send('menu:saveAs') },
         { type: 'separator' },
         { label: 'Export as FDX...', accelerator: 'CmdOrCtrl+E', click: send('menu:exportFdx') },
+        { label: 'Export as PDF...', accelerator: 'CmdOrCtrl+Shift+E', click: send('menu:exportPdf') },
         { type: 'separator' },
         ...(isMac ? [] : [{ role: 'quit' }]),
       ],
@@ -313,6 +315,50 @@ ipcMain.handle('dialog:exportFdx', async (event, { fdxContent }) => {
   if (canceled || !filePath) return null;
   try { fs.writeFileSync(filePath, fdxContent, 'utf-8'); } catch { return null; }
   return filePath;
+});
+
+ipcMain.handle('dialog:exportPdf', async (event, { html }) => {
+  const win = getWin(event);
+  const currentPath = getFilePath(win);
+  const base = currentPath
+    ? path.basename(currentPath, path.extname(currentPath))
+    : 'screenplay';
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    defaultPath: `${base}.pdf`,
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  });
+  if (canceled || !filePath) return null;
+
+  // Write the print HTML to a temp file so the hidden window can load it
+  // as a file:// URL (avoids data URI encoding issues with special characters).
+  const tmpHtml = path.join(os.tmpdir(), `openscreenwriter-print-${Date.now()}.html`);
+  try {
+    fs.writeFileSync(tmpHtml, html, 'utf-8');
+
+    const printWin = new BrowserWindow({
+      show: false,
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
+    });
+
+    await printWin.loadFile(tmpHtml);
+
+    const pdfData = await printWin.webContents.printToPDF({
+      printBackground: false,
+      pageSize: 'Letter',
+      displayHeaderFooter: true,
+      headerTemplate: `<div style="width:100%;font-family:'Courier New',Courier,monospace;font-size:12pt;text-align:right;padding-right:72pt;box-sizing:border-box;"><span class="pageNumber"></span>.</div>`,
+      footerTemplate: '<div></div>',
+      margins: { marginType: 'custom', top: 1, bottom: 1, left: 1.5, right: 1 },
+    });
+
+    printWin.close();
+    fs.writeFileSync(filePath, pdfData);
+    return filePath;
+  } catch {
+    return null;
+  } finally {
+    try { fs.unlinkSync(tmpHtml); } catch {}
+  }
 });
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
