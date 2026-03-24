@@ -41,6 +41,8 @@ const editorPaper    = document.getElementById('editor-paper');
 const statusFilename = document.getElementById('status-filename');
 const statusAutosave = document.getElementById('status-autosave');
 const statusPages    = document.getElementById('status-pages');
+const statusWords    = document.getElementById('status-words');
+const statusScenes   = document.getElementById('status-scenes');
 const btnBold        = document.getElementById('btn-bold');
 const btnItalic      = document.getElementById('btn-italic');
 const btnUnderline   = document.getElementById('btn-underline');
@@ -136,22 +138,26 @@ function createEditor(doc) {
         if (sidePanel.classList.contains('is-open')) {
           updateSceneNav();
         }
+
+        updateWordSceneCount(newState.doc);
       }
     },
 
     handlePaste(view, event) {
+      // If the clipboard contains ProseMirror's own serialized slice, let PM
+      // handle it natively — block types and inline marks are fully preserved.
+      const html = event.clipboardData.getData('text/html');
+      if (html && html.includes('data-pm-slice')) return false;
+
+      // External paste (plain text, another app, etc.) — parse as Fountain so
+      // pasted markup gets proper block types instead of landing as plain text.
       const text = event.clipboardData.getData('text/plain');
       if (!text) return false;
 
-      // Parse pasted text as Fountain and insert as proper block types
       const { doc: pastedDoc } = fountainToDoc(text, screenplaySchema);
-
       const tr = view.state.tr;
       const { from, to } = view.state.selection;
-
-      // Replace selection with pasted content
-      const slice = pastedDoc.slice(0, pastedDoc.content.size);
-      tr.replaceRange(from, to, slice);
+      tr.replaceRange(from, to, pastedDoc.slice(0, pastedDoc.content.size));
       tr.scrollIntoView();
       view.dispatch(tr);
       return true;
@@ -164,6 +170,7 @@ function createEditor(doc) {
   });
 
   lastSavedDoc = doc;
+  updateWordSceneCount(doc);
 }
 
 // ============================================================
@@ -183,6 +190,15 @@ function updateElementIndicator() {
 // ============================================================
 // Format button state
 // ============================================================
+
+function updateWordSceneCount(doc) {
+  const text = doc.textBetween(0, doc.content.size, ' ');
+  const words = text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
+  let scenes = 0;
+  doc.forEach(node => { if (node.type.name === 'scene_heading') scenes++; });
+  statusWords.textContent = words.toLocaleString() + ' words';
+  statusScenes.textContent = scenes + (scenes === 1 ? ' scene' : ' scenes');
+}
 
 function updateFormatIndicators() {
   if (!editorView || sourceMode) {
@@ -312,7 +328,14 @@ async function handleContextAction(action) {
     case 'paste': {
       try {
         const text = await navigator.clipboard.readText();
-        editorView.dispatch(editorView.state.tr.insertText(text));
+        if (text) {
+          const { doc: pastedDoc } = fountainToDoc(text, screenplaySchema);
+          const tr = editorView.state.tr;
+          const { from, to } = editorView.state.selection;
+          tr.replaceRange(from, to, pastedDoc.slice(0, pastedDoc.content.size));
+          tr.scrollIntoView();
+          editorView.dispatch(tr);
+        }
       } catch {}
       break;
     }
@@ -469,6 +492,126 @@ async function exportFdx() {
   const tokens = parseFountain(text);
   const fdxContent = tokensToFdx(tokens);
   await window.screenwriterAPI.exportFdx({ fdxContent });
+}
+
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function inlineMarksToHtml(node) {
+  if (node.isText) {
+    let text = escapeHtml(node.text);
+    node.marks.forEach(mark => {
+      if (mark.type.name === 'bold')      text = `<strong>${text}</strong>`;
+      if (mark.type.name === 'italic')    text = `<em>${text}</em>`;
+      if (mark.type.name === 'underline') text = `<u>${text}</u>`;
+    });
+    return text;
+  }
+  let inner = '';
+  node.forEach(child => { inner += inlineMarksToHtml(child); });
+  return inner;
+}
+
+function generatePrintHtml() {
+  const doc = editorView.state.doc;
+
+  // Block type → CSS class mapping (matches style.css definitions)
+  const blockClass = {
+    scene_heading: 'scene-heading',
+    action:        'action',
+    character:     'character',
+    dialogue:      'dialogue',
+    parenthetical: 'parenthetical',
+    transition:    'transition',
+    centered:      'centered',
+    lyric:         'lyric',
+    note:          'note',
+  };
+
+  let body = '';
+  doc.forEach(node => {
+    const type = node.type.name;
+    if (type === 'page_break') {
+      body += '<div class="page-break"></div>\n';
+      return;
+    }
+    if (type === 'title_page' || type === 'title_page_block') return; // skip title page nodes
+    const cls = blockClass[type] || 'action';
+    const inner = inlineMarksToHtml(node) || '&nbsp;';
+    body += `<p class="${cls}">${inner}</p>\n`;
+  });
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+/* Page setup */
+@page {
+  size: letter;
+}
+
+/* Base */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: Courier, 'Courier New', monospace;
+  font-size: 12pt;
+  line-height: 1.0;
+  color: #000;
+  background: #fff;
+}
+
+/* All blocks share vertical spacing */
+p { margin-top: 1em; }
+p:first-child { margin-top: 0; }
+
+/* Block types */
+.scene-heading {
+  text-transform: uppercase;
+  text-decoration: underline;
+  break-after: avoid;   /* keep heading with its first action line */
+}
+.action { }
+.character {
+  margin-left: 2.2in;
+  text-transform: uppercase;
+  break-after: avoid;   /* keep character name with dialogue */
+}
+.dialogue {
+  margin-left: 1.0in;
+  margin-right: 1.5in;
+}
+.parenthetical {
+  margin-left: 1.6in;
+  margin-right: 1.5in;
+  break-after: avoid;
+}
+.transition {
+  text-align: right;
+  font-style: italic;
+}
+.centered { text-align: center; }
+.lyric { font-style: italic; }
+.note { color: #666; }
+
+/* Manual page break */
+.page-break { page-break-before: always; }
+</style>
+</head>
+<body>
+${body}
+</body>
+</html>`;
+}
+
+async function exportPdf() {
+  const html = generatePrintHtml();
+  await window.screenwriterAPI.exportPdf({ html });
 }
 
 // ============================================================
@@ -805,6 +948,7 @@ async function init() {
   window.screenwriterAPI.onMenuSave(saveFile);
   window.screenwriterAPI.onMenuSaveAs(saveFileAs);
   window.screenwriterAPI.onMenuExportFdx(exportFdx);
+  window.screenwriterAPI.onMenuExportPdf(exportPdf);
   window.screenwriterAPI.onMenuToggleSourceMode(toggleSourceMode);
   window.screenwriterAPI.onMenuInsertTitlePage(showTitlePageWizard);
   window.screenwriterAPI.onMenuInsertPageBreak(() => {
@@ -876,6 +1020,7 @@ async function init() {
     const on = autosave.isEnabled();
     btnAutosaveToggle.classList.toggle('active', on);
     btnAutosaveToggle.title = on ? 'Autosave: On (click to disable)' : 'Autosave: Off (click to enable)';
+    btnAutosaveToggle.innerHTML = `Autosave <span class="autosave-status ${on ? 'on' : 'off'}">${on ? 'ON' : 'OFF'}</span>`;
   }
   btnAutosaveToggle.addEventListener('mousedown', e => e.preventDefault());
   btnAutosaveToggle.addEventListener('click', () => {

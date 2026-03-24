@@ -6,3 +6,5 @@ renderer/editor.bundle.js
 **/*.bak
 .claude/
 CLAUDE.md
+sprints/
+OpenScreenwriter-Sprint-2-Planning.md
