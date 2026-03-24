@@ -70,6 +70,21 @@
     <button class="toolbar-btn toolbar-fmt-btn" id="btn-theme-toggle" title="Toggle theme"></button>
   </div>
 
+  <!-- Find & Replace bar -->
+  <div id="find-bar" style="display:none">
+    <input id="find-input" type="text" placeholder="Find…" autocomplete="off" spellcheck="false" />
+    <button id="find-prev" title="Previous (Shift+Enter)">↑</button>
+    <button id="find-next" title="Next (Enter)">↓</button>
+    <span id="find-count"></span>
+    <button id="find-toggle-replace" title="Toggle Replace">Replace</button>
+    <div id="replace-row" style="display:none">
+      <input id="replace-input" type="text" placeholder="Replace with…" autocomplete="off" spellcheck="false" />
+      <button id="replace-one">Replace</button>
+      <button id="replace-all">All</button>
+    </div>
+    <button id="find-close" title="Close (Escape)">✕</button>
+  </div>
+
   <div id="editor-container">
     <div id="side-panel">
       <div class="side-panel-tabs">
