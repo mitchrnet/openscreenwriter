@@ -422,6 +422,7 @@ async function openFile(preloaded = null) {
     currentFilePath = result.filePath;
     setCurrentFile(result.filePath);
     isDirty = false;
+    addRecentFile(result.filePath);
   }
 
   editorView.focus();
@@ -441,6 +442,7 @@ async function saveFile() {
   setCurrentFile(savedPath);
   currentFilePath = savedPath;
   setDirty(false);
+  addRecentFile(savedPath);
 
   // Clean up autosave after a successful manual save
   if (autosave) await autosave.onManualSave(savedPath, previousPath);
@@ -456,6 +458,7 @@ async function saveFileAs() {
   setCurrentFile(savedPath);
   currentFilePath = savedPath;
   setDirty(false);
+  addRecentFile(savedPath);
 
   // Clean up autosave after a successful Save As
   if (autosave) await autosave.onManualSave(savedPath, previousPath);
@@ -466,6 +469,73 @@ async function exportFdx() {
   const tokens = parseFountain(text);
   const fdxContent = tokensToFdx(tokens);
   await window.screenwriterAPI.exportFdx({ fdxContent });
+}
+
+// ============================================================
+// Recent files
+// ============================================================
+
+const RECENT_MAX = 5;
+const RECENT_KEY = 'recentFiles';
+
+function getRecentFiles() {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
+}
+
+function addRecentFile(filePath) {
+  if (!filePath) return;
+  let recents = getRecentFiles().filter(p => p !== filePath);
+  recents.unshift(filePath);
+  if (recents.length > RECENT_MAX) recents = recents.slice(0, RECENT_MAX);
+  localStorage.setItem(RECENT_KEY, JSON.stringify(recents));
+}
+
+function removeRecentFile(filePath) {
+  const recents = getRecentFiles().filter(p => p !== filePath);
+  localStorage.setItem(RECENT_KEY, JSON.stringify(recents));
+}
+
+function renderRecentFiles() {
+  const section = document.getElementById('startup-recent-section');
+  const list    = document.getElementById('startup-recent-list');
+  if (!section || !list) return;
+
+  const recents = getRecentFiles();
+  section.style.display = recents.length ? '' : 'none';
+  list.innerHTML = '';
+
+  for (const filePath of recents) {
+    const parts    = filePath.replace(/\\/g, '/').split('/');
+    const name     = parts.pop();
+    const dir      = parts.join('/') || '/';
+
+    const btn = document.createElement('button');
+    btn.className = 'startup-recent-item';
+    btn.title     = filePath;
+
+    const nameEl = document.createElement('span');
+    nameEl.className   = 'startup-recent-name';
+    nameEl.textContent = name;
+
+    const dirEl = document.createElement('span');
+    dirEl.className   = 'startup-recent-dir';
+    dirEl.textContent = dir;
+
+    btn.appendChild(nameEl);
+    btn.appendChild(dirEl);
+
+    btn.addEventListener('click', async () => {
+      const result = await window.screenwriterAPI.readFileByPath({ filePath });
+      if (!result) {
+        removeRecentFile(filePath);
+        renderRecentFiles();
+        return;
+      }
+      await openFile(result);
+    });
+
+    list.appendChild(btn);
+  }
 }
 
 // ============================================================
@@ -488,6 +558,7 @@ function setDirty(dirty) {
 
   const prefix = dirty ? '\u25CF ' : '';
   window.screenwriterAPI.setTitle({ title: `${prefix}${name} \u2014 OpenScreenwriter` });
+  window.screenwriterAPI.notifyDirtyState(dirty);
 }
 
 function setCurrentFile(filePath) {
@@ -525,6 +596,7 @@ function showStartupModal() {
     btn.classList.toggle('selected', btn.dataset.themeBtn === savedTheme);
   });
 
+  renderRecentFiles();
   startupModal.style.display = 'flex';
 }
 
@@ -809,6 +881,7 @@ async function init() {
   btnAutosaveToggle.addEventListener('click', () => {
     autosave.setEnabled(!autosave.isEnabled());
     updateAutosaveToggleBtn();
+    window.screenwriterAPI.notifyAutosaveState(autosave.isEnabled());
   });
   updateAutosaveToggleBtn();
 
@@ -816,6 +889,13 @@ async function init() {
   window.screenwriterAPI.onMenuToggleAutosave((checked) => {
     autosave.setEnabled(checked);
     updateAutosaveToggleBtn();
+    window.screenwriterAPI.notifyAutosaveState(checked);
+  });
+
+  // Save-then-close: main process asks us to save before the window closes
+  window.screenwriterAPI.onSaveAndClose(async () => {
+    await saveFile();
+    window.screenwriterAPI.notifyReadyToClose();
   });
 
   // Open a file passed via file-association (macOS open-file / Windows CLI arg)

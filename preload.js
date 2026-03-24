@@ -36,4 +36,12 @@ contextBridge.exposeInMainWorld('screenwriterAPI', {
   onMenuAbout:            (cb) => ipcRenderer.on('menu:about',            () => cb()),
   onMenuToggleAutosave:   (cb) => ipcRenderer.on('menu:toggleAutosave',   (_, checked) => cb(checked)),
   onMenuOpenPath:         (cb) => ipcRenderer.on('menu:openPath',         (_, filePath) => cb(filePath)),
+
+  // Close-guard: renderer → main state sync
+  notifyDirtyState:    (isDirty) => ipcRenderer.send('window:dirtyChanged',   isDirty),
+  notifyAutosaveState: (enabled) => ipcRenderer.send('window:autosaveChanged', enabled),
+  notifyReadyToClose:  ()        => ipcRenderer.send('window:readyToClose'),
+
+  // Close-guard: main → renderer command
+  onSaveAndClose: (cb) => ipcRenderer.on('window:saveAndClose', () => cb()),
 });

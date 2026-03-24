@@ -159,16 +159,16 @@ export function createPaginationPlugin(options = {}) {
 
   let currentView      = null;
   let docChangeTimeout = null;
+  let retryTimeout     = null;
 
   function scheduleDocChangeRecalc(view) {
-    // setTimeout(0) fires after the current frame's rendering (including
-    // ResizeObserver callbacks), so the registry is fully populated by
-    // the time recalculate runs.
+    // 60ms debounce: rapid keystrokes are coalesced into a single recalculation,
+    // cutting layout thrash during fast typing while still feeling immediate.
     if (docChangeTimeout !== null) clearTimeout(docChangeTimeout);
     docChangeTimeout = setTimeout(() => {
       docChangeTimeout = null;
       if (currentView) recalculate(currentView);
-    }, 0);
+    }, 60);
   }
 
   function recalculate(view) {
@@ -183,9 +183,25 @@ export function createPaginationPlugin(options = {}) {
     // new NodeViews are still initializing (ResizeObserver hasn't fired yet),
     // their heights read as 0, the accumulator never overflows PAGE_CONTENT_H,
     // and pages grow infinitely. Returning here keeps the existing (mapped)
-    // decorations alive; once the last NodeView reports, onChange fires and
-    // recalculate runs again with complete data.
-    if (!heightRegistry.allReported()) return;
+    // decorations alive.
+    if (!heightRegistry.allReported()) {
+      // Primary recovery: onChange fires when the last NodeView reports.
+      // Fallback: schedule a retry in case ResizeObserver stalls (e.g. a
+      // zero-height element the browser skips) so decorations don't get stuck.
+      if (retryTimeout === null) {
+        retryTimeout = setTimeout(() => {
+          retryTimeout = null;
+          if (currentView) recalculate(currentView);
+        }, 100);
+      }
+      return;
+    }
+
+    // We have complete height data — clear any pending fallback retry.
+    if (retryTimeout !== null) {
+      clearTimeout(retryTimeout);
+      retryTimeout = null;
+    }
 
     const { decoSet, pageCount } = buildDecorations(view.state, hasTitlePage);
     updatePaperMinHeight(editorPaper, pageCount, hasTitlePage());
@@ -252,6 +268,10 @@ export function createPaginationPlugin(options = {}) {
           if (docChangeTimeout !== null) {
             clearTimeout(docChangeTimeout);
             docChangeTimeout = null;
+          }
+          if (retryTimeout !== null) {
+            clearTimeout(retryTimeout);
+            retryTimeout = null;
           }
           heightRegistry.setOnChange(null);
         },
