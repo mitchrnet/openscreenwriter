@@ -102,6 +102,20 @@ npm run dist     # Windows: outputs dist/OpenScreenwriter Setup x.x.x.exe
 
 ## Changelog
 
+### v1.2.0 — 2026-03-24
+
+**Unsaved Changes Close Guard**
+- Native OS dialog when closing a window or quitting with unsaved changes — Save, Don't Save, or Cancel
+- Smart: skips the dialog when autosave is on and the file already has a path (autosave has already written every change to disk)
+
+**Pagination Stability**
+- Debounced pagination recalculation from 0ms → 60ms — rapid keystrokes now batch into a single layout pass instead of recalculating on every character
+- Added fallback retry when height reporting stalls — page break decorations no longer get stuck after certain node type changes
+
+**Recent Files**
+- Last 5 opened or saved `.fountain` files now appear in the startup modal for quick access
+- Persisted across sessions; missing files are silently removed from the list
+
 ### v1.1.2 — 2026-03-23
 
 **Autosave**
