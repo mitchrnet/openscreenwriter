@@ -332,6 +332,107 @@ html, body {
   animation: none;
 }
 
+/* ---- Find & Replace bar ---- */
+#find-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+#find-input,
+#replace-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  padding: 0.2rem 0.5rem;
+  outline: none;
+  width: 200px;
+}
+
+#find-input:focus,
+#replace-input:focus {
+  border-color: var(--accent2);
+}
+
+#find-bar button {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  white-space: nowrap;
+}
+
+#find-bar button:hover {
+  background: var(--border);
+}
+
+#find-count {
+  font-size: 0.75rem;
+  color: var(--muted);
+  min-width: 4rem;
+  text-align: center;
+}
+
+#replace-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+#find-close {
+  margin-left: auto;
+}
+
+/* Match highlights in the editor */
+.find-match {
+  background: rgba(250, 204, 21, 0.25);
+  border-radius: 2px;
+}
+
+.find-match-active {
+  background: rgba(250, 204, 21, 0.55);
+  outline: 1px solid rgba(250, 204, 21, 0.8);
+}
+
+/* ---- Autocomplete dropdown ---- */
+#autocomplete-dropdown {
+  position: fixed;
+  z-index: 1000;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  max-height: 180px;
+  overflow-y: auto;
+  min-width: 160px;
+}
+
+.autocomplete-item {
+  padding: 0.35rem 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.active {
+  background: var(--surface2);
+  color: var(--accent);
+}
+
 /* ---- Status bar ---- */
 #statusbar {
   display: flex;
@@ -1123,6 +1224,7 @@ body[data-theme="light"] .sp-toggle-btn.active {
 @media print {
   /* Hide app chrome */
   #toolbar,
+  #find-bar,
   #statusbar,
   #side-panel {
     display: none !important;

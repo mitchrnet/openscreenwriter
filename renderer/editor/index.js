@@ -19,6 +19,11 @@ import { createPaginationPlugin } from './pagination.js';
 import { buildNodeViews } from './node-views.js';
 import { heightRegistry } from './height-registry.js';
 import {
+  createFindReplacePlugin, initFindBar, setFindView,
+  openFindBar, closeFindBar, findNext, findPrev, updateFindCount,
+} from './find-replace.js';
+import { createAutocompletePlugin } from './autocomplete.js';
+import {
   setBlockType as setBlockTypeCmd,
   insertPageBreak as insertPageBreakCmd,
   insertLineBreak as insertLineBreakCmd,
@@ -97,6 +102,9 @@ function createEditor(doc) {
     doc,
     schema: screenplaySchema,
     plugins: [
+      // Autocomplete must be first so its handleKeyDown (Tab/Enter/Arrow/Escape)
+      // runs before the screenplay keymap consumes those keys.
+      createAutocompletePlugin(),
       history(),
       createScreenplayKeymap(screenplaySchema, {
         save: saveFile,
@@ -108,9 +116,12 @@ function createEditor(doc) {
           zoomLevel = 1.0;
           editorPaper.style.zoom = 1;
         },
+        find:        () => openFindBar(false),
+        findReplace: () => openFindBar(true),
       }),
       keymap(baseKeymap),
       paginationPlugin,
+      createFindReplacePlugin({ onMatchCount: updateFindCount }),
     ],
   });
 
@@ -171,6 +182,7 @@ function createEditor(doc) {
 
   lastSavedDoc = doc;
   updateWordSceneCount(doc);
+  setFindView(editorView);
 }
 
 // ============================================================
@@ -310,19 +322,13 @@ async function handleContextAction(action) {
   if (!editorView) return;
 
   switch (action) {
-    case 'cut': {
-      const { from, to } = editorView.state.selection;
-      const text = editorView.state.doc.textBetween(from, to);
-      try {
-        await navigator.clipboard.writeText(text);
-        editorView.dispatch(editorView.state.tr.deleteSelection());
-      } catch {}
-      break;
-    }
+    case 'cut':
     case 'copy': {
-      const { from, to } = editorView.state.selection;
-      const text = editorView.state.doc.textBetween(from, to);
-      try { await navigator.clipboard.writeText(text); } catch {}
+      // Focus the editor and let PM's native event handler write the full
+      // clipboard payload (text/html with data-pm-slice + text/plain).
+      // execCommand is deprecated in web specs but fully supported in Electron.
+      editorView.focus();
+      document.execCommand(action);
       break;
     }
     case 'paste': {
@@ -777,6 +783,9 @@ async function init() {
   // Create initial empty editor
   const { doc } = fountainToDoc('', screenplaySchema);
   createEditor(doc);
+
+  // Initialize find bar UI
+  initFindBar();
 
   // --- Format buttons ---
   [btnBold, btnItalic, btnUnderline].forEach(btn => {
