@@ -6,8 +6,11 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 // Per-window state
-const filePathByWindow  = new Map(); // windowId → current file path (or null)
-const windowFileToOpen  = new Map(); // windowId → file path to pass to renderer on first init
+const filePathByWindow        = new Map(); // windowId → current file path (or null)
+const windowFileToOpen        = new Map(); // windowId → file path to pass to renderer on first init
+const dirtyByWindow           = new Map(); // windowId → bool (unsaved changes)
+const autosaveEnabledByWindow = new Map(); // windowId → bool (autosave on/off)
+const closingBypass           = new Set(); // windowIds that should skip the close dialog
 
 let pendingFilePath = null; // set by open-file before any window exists
 
@@ -106,13 +109,54 @@ function createWindow(fileToOpen = null) {
   });
 
   filePathByWindow.set(win.id, null);
+  dirtyByWindow.set(win.id, false);
+  autosaveEnabledByWindow.set(win.id, true);
   if (fileToOpen) windowFileToOpen.set(win.id, fileToOpen);
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
+  // ── Unsaved-changes guard ────────────────────────────────────────────────
+  win.on('close', async (e) => {
+    if (closingBypass.has(win.id)) {
+      closingBypass.delete(win.id);
+      return; // bypass: already handled (save-then-close or don't-save)
+    }
+
+    const dirty      = dirtyByWindow.get(win.id) ?? false;
+    const autosaveOn = autosaveEnabledByWindow.get(win.id) ?? true;
+    const filePath   = getFilePath(win);
+
+    // If autosave is running and the file has a real path, it's already saved.
+    if (!dirty || (autosaveOn && filePath)) return;
+
+    e.preventDefault();
+
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'warning',
+      message: 'You have unsaved changes.',
+      detail: 'Do you want to save your changes before closing?',
+      buttons: ['Save', "Don't Save", 'Cancel'],
+      defaultId: 0,
+      cancelId: 2,
+    });
+
+    if (response === 0) {
+      // Save → ask renderer to save, then close
+      win.webContents.send('window:saveAndClose');
+    } else if (response === 1) {
+      // Don't Save → close without saving
+      closingBypass.add(win.id);
+      win.close();
+    }
+    // Cancel → do nothing; window stays open
+  });
+
   win.on('closed', () => {
     filePathByWindow.delete(win.id);
     windowFileToOpen.delete(win.id);
+    dirtyByWindow.delete(win.id);
+    autosaveEnabledByWindow.delete(win.id);
+    closingBypass.delete(win.id);
   });
 
   return win;
@@ -312,6 +356,28 @@ ipcMain.handle('app:getPendingFile', (event) => {
   const filePath = pendingFilePath || getArgFilePath();
   pendingFilePath = null;
   return filePath || null;
+});
+
+// ─── Close-guard IPC ─────────────────────────────────────────────────────────
+
+// Renderer notifies main whenever dirty state changes
+ipcMain.on('window:dirtyChanged', (event, isDirty) => {
+  const win = getWin(event);
+  if (win) dirtyByWindow.set(win.id, isDirty);
+});
+
+// Renderer notifies main whenever autosave is toggled
+ipcMain.on('window:autosaveChanged', (event, enabled) => {
+  const win = getWin(event);
+  if (win) autosaveEnabledByWindow.set(win.id, enabled);
+});
+
+// Renderer signals that a save-then-close is complete
+ipcMain.on('window:readyToClose', (event) => {
+  const win = getWin(event);
+  if (!win) return;
+  closingBypass.add(win.id);
+  win.close();
 });
 
 // ─── Autosave IPC ────────────────────────────────────────────────────────────
