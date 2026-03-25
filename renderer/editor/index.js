@@ -68,14 +68,14 @@ const titlePageWizardEl   = document.getElementById('title-page-wizard');
 const startupModal        = document.getElementById('startup-modal');
 
 // --- State ---
-let editorView       = null;
-let sourceMode       = false;
-let currentFilePath  = null;
-let isDirty          = false;
-let lastSavedDoc     = null;
-let zoomLevel        = 1.0;
-let currentPageCount = 0;
-let autosave         = null;  // autosave controller, set in init()
+let editorView          = null;
+let sourceMode          = false;
+let currentFilePath     = null;
+let isDirty             = false;
+let lastSavedDoc        = null;
+let zoomLevel           = 1.0;
+let currentPageCount    = 0;
+let autosave            = null;  // autosave controller, set in init()
 
 // ============================================================
 // Editor creation
@@ -525,6 +525,8 @@ function inlineMarksToHtml(node) {
 
 function generatePrintHtml() {
   const doc = editorView.state.doc;
+  const tpData = getTitlePageData();
+  const hasTP = hasTitlePage();
 
   // Block type → CSS class mapping (matches style.css definitions)
   const blockClass = {
@@ -552,29 +554,65 @@ function generatePrintHtml() {
     body += `<p class="${cls}">${inner}</p>\n`;
   });
 
+  // Build title page HTML block (only when title page data is present)
+  let titlePageHtml = '';
+  if (hasTP) {
+    const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const title      = esc(tpData.title);
+    const credit     = esc(tpData.credit);
+    const author     = esc(tpData.author);
+    const source     = esc(tpData.source);
+    const draftDate  = esc(tpData.draftDate);
+    const contact    = esc(tpData.contact);
+    const contactPos = tpData.contactPosition === 'right' ? 'right' : 'left';
+
+    titlePageHtml =
+`<div class="title-page">
+  <div class="tp-top-gap"></div>
+  <div class="tp-center">
+    <div class="tp-title">${title}</div>
+    ${credit ? `<div class="tp-credit">${credit}</div>` : ''}
+    ${author ? `<div class="tp-author">by\n${author}</div>` : ''}
+    ${source ? `<div class="tp-source">${source}</div>` : ''}
+  </div>
+  <div class="tp-mid-gap"></div>
+  ${(contact || draftDate) ? `<div class="tp-contact tp-contact-${contactPos}">${contact ? `<div>${contact.replace(/\n/g, '<br>')}</div>` : ''}${draftDate ? `<div>${draftDate}</div>` : ''}</div>` : ''}
+</div>\n`;
+  }
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <style>
-/* Page setup */
+/* Page setup — explicit margins so all pages are identical; page numbers via
+   CSS @page margin boxes; title page unnumbered via @page :first */
 @page {
   size: letter;
+  margin: 1in 1in 1in 1.5in;
+  @top-right {
+    content: counter(page) ".";
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 12pt;
+  }
+}
+@page :first {
+  @top-right { content: none; }
 }
 
 /* Base */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: Courier, 'Courier New', monospace;
+  font-family: 'Courier New', Courier, monospace;
   font-size: 12pt;
   line-height: 1.0;
   color: #000;
   background: #fff;
 }
 
-/* All blocks share vertical spacing */
+/* All blocks share vertical spacing — no first-child exception,
+   matching the WYSIWYG where the page-number widget precedes content */
 p { margin-top: 1em; }
-p:first-child { margin-top: 0; }
 
 /* Block types */
 .scene-heading {
@@ -607,10 +645,28 @@ p:first-child { margin-top: 0; }
 
 /* Manual page break */
 .page-break { page-break-before: always; }
+
+/* Title page layout — flexbox so dimensions are reliable in print context */
+.title-page {
+  display: flex;
+  flex-direction: column;
+  height: 9in;       /* @page margin is 1in top + 1in bottom; content area = 9in */
+  page-break-after: always;
+}
+.tp-top-gap  { flex: 0 0 3.6in; }   /* 40% of 9in pushes title to ~40% down */
+.tp-center   { flex: 0 0 auto; text-align: center; }
+.tp-mid-gap  { flex: 1 1 auto; }    /* remaining space before contact */
+.tp-title    { font-size: 12pt; text-transform: uppercase; margin-bottom: 1em; }
+.tp-credit   { font-size: 12pt; margin-bottom: 0.25em; }
+.tp-author   { font-size: 12pt; white-space: pre-line; }
+.tp-source   { font-size: 12pt; margin-top: 1em; }
+.tp-contact  { flex: 0 0 auto; font-size: 12pt; line-height: 1.5; }
+.tp-contact-left  { text-align: left;  }
+.tp-contact-right { text-align: right; }
 </style>
 </head>
 <body>
-${body}
+${titlePageHtml}${body}
 </body>
 </html>`;
 }
@@ -618,6 +674,27 @@ ${body}
 async function exportPdf() {
   const html = generatePrintHtml();
   await window.screenwriterAPI.exportPdf({ html });
+}
+
+function printScript() {
+  const html = generatePrintHtml();
+  // Use a hidden iframe so the native print dialog opens in the current window
+  // context (reliable on all platforms) rather than a background BrowserWindow.
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:0;height:0;border:none;';
+  document.body.appendChild(iframe);
+  const cleanup = () => { try { document.body.removeChild(iframe); } catch {} };
+  iframe.addEventListener('load', () => {
+    try {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    } finally {
+      // Small delay so the print dialog can fully initialise before we remove the iframe
+      setTimeout(cleanup, 1000);
+    }
+  });
+  const blob = new Blob([html], { type: 'text/html' });
+  iframe.src = URL.createObjectURL(blob);
 }
 
 // ============================================================
@@ -888,6 +965,15 @@ async function init() {
     });
   });
 
+  // Delete title page button
+  document.getElementById('sp-delete-title-page').addEventListener('click', () => {
+    setTitlePageData({ title: '', credit: '', author: '', source: '', draftDate: '', contact: '', contactPosition: 'left' });
+    refreshTitlePageInEditor(editorPaper);
+    if (editorView) editorView.dispatch(editorView.state.tr);
+    syncSidePanelFromData();
+    setDirty(true);
+  });
+
   // --- Title page wizard ---
   document.getElementById('tp-wiz-cancel').addEventListener('click', () => {
     hideTitlePageWizard(editorView?.dom);
@@ -958,6 +1044,7 @@ async function init() {
   window.screenwriterAPI.onMenuSaveAs(saveFileAs);
   window.screenwriterAPI.onMenuExportFdx(exportFdx);
   window.screenwriterAPI.onMenuExportPdf(exportPdf);
+  window.screenwriterAPI.onMenuPrint(printScript);
   window.screenwriterAPI.onMenuToggleSourceMode(toggleSourceMode);
   window.screenwriterAPI.onMenuInsertTitlePage(showTitlePageWizard);
   window.screenwriterAPI.onMenuInsertPageBreak(() => {

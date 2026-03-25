@@ -1,6 +1,9 @@
 'use strict';
 
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+
+// Must be set before app.whenReady() so the macOS menu bar shows the correct name
+app.setName('OpenScreenwriter');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -200,6 +203,7 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Export as FDX...', accelerator: 'CmdOrCtrl+E', click: send('menu:exportFdx') },
         { label: 'Export as PDF...', accelerator: 'CmdOrCtrl+Shift+E', click: send('menu:exportPdf') },
+        { label: 'Print...', accelerator: 'CmdOrCtrl+P', click: send('menu:print') },
         { type: 'separator' },
         ...(isMac ? [] : [{ role: 'quit' }]),
       ],
@@ -345,10 +349,7 @@ ipcMain.handle('dialog:exportPdf', async (event, { html }) => {
     const pdfData = await printWin.webContents.printToPDF({
       printBackground: false,
       pageSize: 'Letter',
-      displayHeaderFooter: true,
-      headerTemplate: `<div style="width:100%;font-family:'Courier New',Courier,monospace;font-size:12pt;text-align:right;padding-right:72pt;box-sizing:border-box;"><span class="pageNumber"></span>.</div>`,
-      footerTemplate: '<div></div>',
-      margins: { marginType: 'custom', top: 1, bottom: 1, left: 1.5, right: 1 },
+      margins: { marginType: 'none' },
     });
 
     printWin.close();
@@ -358,6 +359,31 @@ ipcMain.handle('dialog:exportPdf', async (event, { html }) => {
     return null;
   } finally {
     try { fs.unlinkSync(tmpHtml); } catch {}
+  }
+});
+
+ipcMain.handle('dialog:print', async (event, { html }) => {
+  const tmpHtml = path.join(os.tmpdir(), `openscreenwriter-print-${Date.now()}.html`);
+  let printWin;
+  try {
+    fs.writeFileSync(tmpHtml, html, 'utf-8');
+    printWin = new BrowserWindow({
+      show: false,
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
+    });
+    await printWin.loadFile(tmpHtml);
+    await new Promise((resolve, reject) => {
+      printWin.webContents.print({ silent: false, printBackground: false }, (success, reason) => {
+        if (!success && reason !== 'cancelled') reject(new Error(reason));
+        else resolve();
+      });
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try { fs.unlinkSync(tmpHtml); } catch {}
+    if (printWin && !printWin.isDestroyed()) printWin.close();
   }
 });
 

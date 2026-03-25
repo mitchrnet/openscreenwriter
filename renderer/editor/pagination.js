@@ -17,14 +17,14 @@ const paginationKey = new PluginKey('pagination');
 
 // 8.5"×11" page, 1in top + 1in bottom padding → 9in content = 864px at 96 CSS px/in
 const PAGE_CONTENT_H = 9 * 96; // 864px
-const MARKER_H = 80;
+// 80px dark strip + 1in (96px) white border-top + 1in (96px) white border-bottom.
+// The borders represent the bottom margin of the outgoing page and the top margin
+// of the incoming page, making every page visually 1in+9in+1in = 11in.
+const MARKER_H = 272;
 
-// Page number widget heights (padding-top + 12pt line):
-//   Pages 2+:         padding-top 0.5in (48px) + 16px = 64px
-//   Page 1 no-title:  padding-top 0 + 16px = 16px (noPaddingTop override)
-//   Page 1 w/title:   same 64px as pages 2+
-const PAGE_NUM_H  = 64;  // pages 2+ and page 1 with title page
-const PAGE1_NUM_H = 16;  // page 1 without title page
+// Page number widgets are zero-height (overlaid visually in the break marker gap).
+const PAGE_NUM_H  = 0;
+const PAGE1_NUM_H = 0;
 
 // ─── Widget factory helpers ───────────────────────────────────────────────────
 
@@ -36,16 +36,11 @@ function createMarker(pageNum) {
   return marker;
 }
 
-function createPageNum(pageNum, noPaddingTop = false) {
+function createPageNum(pageNum) {
   const el = document.createElement('div');
   el.className = 'ws-block ws-page-number';
   el.contentEditable = 'false';
   el.textContent = `${pageNum}.`;
-  if (noPaddingTop) {
-    el.style.paddingTop = '0';
-    el.style.position = 'relative';
-    el.style.top = '-0.5in';
-  }
   return el;
 }
 
@@ -134,10 +129,8 @@ function buildDecorations(state, hasTitlePage) {
   }
 
   // Page 1 number — always at the very top of script content.
-  // Without a title-page above it, suppress the 0.5in padding-top so it sits
-  // flush rather than floating 0.5in into the first page.
   decorations.push(Decoration.widget(0,
-    () => createPageNum(1, !hasTitlePage()), { side: -1 }));
+    () => createPageNum(1), { side: -1 }));
 
   return { decoSet: DecorationSet.create(state.doc, decorations), pageCount: pageNum };
 }
@@ -161,14 +154,16 @@ export function createPaginationPlugin(options = {}) {
   let docChangeTimeout = null;
   let retryTimeout     = null;
 
-  function scheduleDocChangeRecalc(view) {
-    // 60ms debounce: rapid keystrokes are coalesced into a single recalculation,
-    // cutting layout thrash during fast typing while still feeling immediate.
+  function scheduleDocChangeRecalc(view, immediate = false) {
+    // Immediate path (0ms): used when the document structure changes (nodes
+    // added/removed) so page breaks update within the same frame rather than
+    // after a visible delay. Falls back to a 16ms debounce for plain typing so
+    // rapid keystrokes are coalesced and don't thrash layout.
     if (docChangeTimeout !== null) clearTimeout(docChangeTimeout);
     docChangeTimeout = setTimeout(() => {
       docChangeTimeout = null;
       if (currentView) recalculate(currentView);
-    }, 60);
+    }, immediate ? 0 : 16);
   }
 
   function recalculate(view) {
@@ -192,7 +187,7 @@ export function createPaginationPlugin(options = {}) {
         retryTimeout = setTimeout(() => {
           retryTimeout = null;
           if (currentView) recalculate(currentView);
-        }, 100);
+        }, 32);
       }
       return;
     }
@@ -260,7 +255,10 @@ export function createPaginationPlugin(options = {}) {
           // setTimeout(0) so the current frame's ResizeObserver callbacks run
           // first and populate the registry before recalculate reads it.
           if (prevState.doc !== view.state.doc) {
-            scheduleDocChangeRecalc(view);
+            // Use the immediate path when the number of top-level nodes changes
+            // (Enter pressed, node deleted) to avoid visible layout glitches.
+            const structural = view.state.doc.childCount !== prevState.doc.childCount;
+            scheduleDocChangeRecalc(view, structural);
           }
         },
         destroy() {
