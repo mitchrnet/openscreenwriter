@@ -1,5 +1,41 @@
 # Changelog
 
+### v1.3.0 — 2026-03-25
+
+**Title Page in PDF Export**
+- Title page renders as the first page of every PDF export — correct 1in/1.5in margins, title centered at ~40% down, contact info at bottom-left or bottom-right
+- First page is unnumbered; script pages are auto-numbered via CSS margin boxes
+- Title page is visually separated from script content in the editor by a page break marker
+
+**Print Support**
+- File → Print and Cmd+P now open the native OS print dialog — print directly to paper or any printer destination
+- Print output uses the same HTML/CSS as PDF export for identical results
+
+**Delete Title Page**
+- New "Delete Title Page" button in the Script Info side panel — clears all title page fields and removes it from the document in one click
+
+**WYSIWYG / PDF Parity**
+- Page break markers now include 1in of white space above and below, making every page visually 1in + 9in + 1in = 11in — identical to the printed output
+- Font aligned to Courier New in both editor and PDF export so text wraps at the same line lengths in both
+- All blocks now use uniform 1em top margin in both contexts — no more first-page drift
+
+**Pagination stability**
+- Debounce reduced: 16ms general, 0ms for structural changes (Enter / node delete)
+- Retry timeout reduced 100ms → 32ms
+
+**Find & Replace**
+- Cmd+F opens a find bar; find next/previous; Cmd+H opens full find & replace with Replace and Replace All
+- Match count displayed in real time
+
+**Character Autocomplete**
+- Typing in a CHARACTER block shows a dropdown of previously used character names
+- Tab or click to confirm; Escape to dismiss
+
+**App name**
+- App menu bar now shows "OpenScreenwriter" instead of "Electron"
+
+---
+
 ### v1.2.0 — 2026-03-24
 
 **Unsaved Changes Close Guard**
