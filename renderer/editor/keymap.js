@@ -17,7 +17,7 @@ import {
  *
  * @param {Schema} schema - The ProseMirror schema
  * @param {object} callbacks - External callbacks for file ops, etc.
- *   { save, saveAs, open, exportFdx, toggleSourceMode, resetZoom, find, findReplace }
+ *   { save, saveAs, open, exportFdx, toggleSourceMode, resetZoom, find, findReplace, print }
  * @returns {Plugin}
  */
 export function createScreenplayKeymap(schema, callbacks = {}) {
@@ -63,6 +63,5 @@ export function createScreenplayKeymap(schema, callbacks = {}) {
   if (callbacks.findReplace) {
     bindings['Mod-h'] = () => { callbacks.findReplace(); return true; };
   }
-
   return keymap(bindings);
 }

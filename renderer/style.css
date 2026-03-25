@@ -294,6 +294,12 @@ html, body {
   display: block;
   width: calc(100% + 2.5in);
   height: 80px;
+  /* 1in white borders above/below represent the bottom margin of the
+     previous page and the top margin of the next page, making each page
+     visually 1in+9in+1in = 11in tall — identical to the PDF. */
+  border-top: 96px solid #fff;
+  border-bottom: 96px solid #fff;
+  box-sizing: content-box;
   margin: 0 -1in 0 -1.5in;
   background: var(--bg);
   position: relative;
@@ -940,12 +946,16 @@ body[data-theme="light"] #side-panel::-webkit-scrollbar-thumb {
   display: block;
   width: calc(100% + 2.5in);
   margin: 0 -1in 0 -1.5in;
-  padding: 0.5in 1in 0 0;
+  height: 0;
+  overflow: visible;
+  position: relative;
+  top: -36px;
+  padding: 0 1in 0 0;
   font-family: var(--font-mono);
   font-size: 12pt;
   line-height: 1.0;
   text-align: right;
-  color: #111;
+  color: #888;
   pointer-events: none;
   user-select: none;
   -webkit-user-modify: read-only;
@@ -1036,7 +1046,8 @@ body[data-theme="light"] .sp-toggle-btn.active {
 /* ---- Title Page WYSIWYG rendering ---- */
 .ws-title-page-container {
   position: relative;
-  min-height: calc(11in - 3in);
+  height: 9in;
+  min-height: 9in;
   font-family: var(--font-mono);
   pointer-events: none;
   user-select: none;
