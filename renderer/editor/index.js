@@ -19,6 +19,11 @@ import { createPaginationPlugin } from './pagination.js';
 import { buildNodeViews } from './node-views.js';
 import { heightRegistry } from './height-registry.js';
 import {
+  createFindReplacePlugin, initFindBar, setFindView,
+  openFindBar, closeFindBar, findNext, findPrev, updateFindCount,
+} from './find-replace.js';
+import { createAutocompletePlugin } from './autocomplete.js';
+import {
   setBlockType as setBlockTypeCmd,
   insertPageBreak as insertPageBreakCmd,
   insertLineBreak as insertLineBreakCmd,
@@ -41,6 +46,8 @@ const editorPaper    = document.getElementById('editor-paper');
 const statusFilename = document.getElementById('status-filename');
 const statusAutosave = document.getElementById('status-autosave');
 const statusPages    = document.getElementById('status-pages');
+const statusWords    = document.getElementById('status-words');
+const statusScenes   = document.getElementById('status-scenes');
 const btnBold        = document.getElementById('btn-bold');
 const btnItalic      = document.getElementById('btn-italic');
 const btnUnderline   = document.getElementById('btn-underline');
@@ -61,14 +68,14 @@ const titlePageWizardEl   = document.getElementById('title-page-wizard');
 const startupModal        = document.getElementById('startup-modal');
 
 // --- State ---
-let editorView       = null;
-let sourceMode       = false;
-let currentFilePath  = null;
-let isDirty          = false;
-let lastSavedDoc     = null;
-let zoomLevel        = 1.0;
-let currentPageCount = 0;
-let autosave         = null;  // autosave controller, set in init()
+let editorView          = null;
+let sourceMode          = false;
+let currentFilePath     = null;
+let isDirty             = false;
+let lastSavedDoc        = null;
+let zoomLevel           = 1.0;
+let currentPageCount    = 0;
+let autosave            = null;  // autosave controller, set in init()
 
 // ============================================================
 // Editor creation
@@ -95,6 +102,9 @@ function createEditor(doc) {
     doc,
     schema: screenplaySchema,
     plugins: [
+      // Autocomplete must be first so its handleKeyDown (Tab/Enter/Arrow/Escape)
+      // runs before the screenplay keymap consumes those keys.
+      createAutocompletePlugin(),
       history(),
       createScreenplayKeymap(screenplaySchema, {
         save: saveFile,
@@ -106,9 +116,12 @@ function createEditor(doc) {
           zoomLevel = 1.0;
           editorPaper.style.zoom = 1;
         },
+        find:        () => openFindBar(false),
+        findReplace: () => openFindBar(true),
       }),
       keymap(baseKeymap),
       paginationPlugin,
+      createFindReplacePlugin({ onMatchCount: updateFindCount }),
     ],
   });
 
@@ -136,22 +149,26 @@ function createEditor(doc) {
         if (sidePanel.classList.contains('is-open')) {
           updateSceneNav();
         }
+
+        updateWordSceneCount(newState.doc);
       }
     },
 
     handlePaste(view, event) {
+      // If the clipboard contains ProseMirror's own serialized slice, let PM
+      // handle it natively — block types and inline marks are fully preserved.
+      const html = event.clipboardData.getData('text/html');
+      if (html && html.includes('data-pm-slice')) return false;
+
+      // External paste (plain text, another app, etc.) — parse as Fountain so
+      // pasted markup gets proper block types instead of landing as plain text.
       const text = event.clipboardData.getData('text/plain');
       if (!text) return false;
 
-      // Parse pasted text as Fountain and insert as proper block types
       const { doc: pastedDoc } = fountainToDoc(text, screenplaySchema);
-
       const tr = view.state.tr;
       const { from, to } = view.state.selection;
-
-      // Replace selection with pasted content
-      const slice = pastedDoc.slice(0, pastedDoc.content.size);
-      tr.replaceRange(from, to, slice);
+      tr.replaceRange(from, to, pastedDoc.slice(0, pastedDoc.content.size));
       tr.scrollIntoView();
       view.dispatch(tr);
       return true;
@@ -164,6 +181,8 @@ function createEditor(doc) {
   });
 
   lastSavedDoc = doc;
+  updateWordSceneCount(doc);
+  setFindView(editorView);
 }
 
 // ============================================================
@@ -183,6 +202,15 @@ function updateElementIndicator() {
 // ============================================================
 // Format button state
 // ============================================================
+
+function updateWordSceneCount(doc) {
+  const text = doc.textBetween(0, doc.content.size, ' ');
+  const words = text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
+  let scenes = 0;
+  doc.forEach(node => { if (node.type.name === 'scene_heading') scenes++; });
+  statusWords.textContent = words.toLocaleString() + ' words';
+  statusScenes.textContent = scenes + (scenes === 1 ? ' scene' : ' scenes');
+}
 
 function updateFormatIndicators() {
   if (!editorView || sourceMode) {
@@ -294,25 +322,26 @@ async function handleContextAction(action) {
   if (!editorView) return;
 
   switch (action) {
-    case 'cut': {
-      const { from, to } = editorView.state.selection;
-      const text = editorView.state.doc.textBetween(from, to);
-      try {
-        await navigator.clipboard.writeText(text);
-        editorView.dispatch(editorView.state.tr.deleteSelection());
-      } catch {}
-      break;
-    }
+    case 'cut':
     case 'copy': {
-      const { from, to } = editorView.state.selection;
-      const text = editorView.state.doc.textBetween(from, to);
-      try { await navigator.clipboard.writeText(text); } catch {}
+      // Focus the editor and let PM's native event handler write the full
+      // clipboard payload (text/html with data-pm-slice + text/plain).
+      // execCommand is deprecated in web specs but fully supported in Electron.
+      editorView.focus();
+      document.execCommand(action);
       break;
     }
     case 'paste': {
       try {
         const text = await navigator.clipboard.readText();
-        editorView.dispatch(editorView.state.tr.insertText(text));
+        if (text) {
+          const { doc: pastedDoc } = fountainToDoc(text, screenplaySchema);
+          const tr = editorView.state.tr;
+          const { from, to } = editorView.state.selection;
+          tr.replaceRange(from, to, pastedDoc.slice(0, pastedDoc.content.size));
+          tr.scrollIntoView();
+          editorView.dispatch(tr);
+        }
       } catch {}
       break;
     }
@@ -469,6 +498,203 @@ async function exportFdx() {
   const tokens = parseFountain(text);
   const fdxContent = tokensToFdx(tokens);
   await window.screenwriterAPI.exportFdx({ fdxContent });
+}
+
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function inlineMarksToHtml(node) {
+  if (node.isText) {
+    let text = escapeHtml(node.text);
+    node.marks.forEach(mark => {
+      if (mark.type.name === 'bold')      text = `<strong>${text}</strong>`;
+      if (mark.type.name === 'italic')    text = `<em>${text}</em>`;
+      if (mark.type.name === 'underline') text = `<u>${text}</u>`;
+    });
+    return text;
+  }
+  let inner = '';
+  node.forEach(child => { inner += inlineMarksToHtml(child); });
+  return inner;
+}
+
+function generatePrintHtml() {
+  const doc = editorView.state.doc;
+  const tpData = getTitlePageData();
+  const hasTP = hasTitlePage();
+
+  // Block type → CSS class mapping (matches style.css definitions)
+  const blockClass = {
+    scene_heading: 'scene-heading',
+    action:        'action',
+    character:     'character',
+    dialogue:      'dialogue',
+    parenthetical: 'parenthetical',
+    transition:    'transition',
+    centered:      'centered',
+    lyric:         'lyric',
+    note:          'note',
+  };
+
+  let body = '';
+  doc.forEach(node => {
+    const type = node.type.name;
+    if (type === 'page_break') {
+      body += '<div class="page-break"></div>\n';
+      return;
+    }
+    if (type === 'title_page' || type === 'title_page_block') return; // skip title page nodes
+    const cls = blockClass[type] || 'action';
+    const inner = inlineMarksToHtml(node) || '&nbsp;';
+    body += `<p class="${cls}">${inner}</p>\n`;
+  });
+
+  // Build title page HTML block (only when title page data is present)
+  let titlePageHtml = '';
+  if (hasTP) {
+    const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const title      = esc(tpData.title);
+    const credit     = esc(tpData.credit);
+    const author     = esc(tpData.author);
+    const source     = esc(tpData.source);
+    const draftDate  = esc(tpData.draftDate);
+    const contact    = esc(tpData.contact);
+    const contactPos = tpData.contactPosition === 'right' ? 'right' : 'left';
+
+    titlePageHtml =
+`<div class="title-page">
+  <div class="tp-top-gap"></div>
+  <div class="tp-center">
+    <div class="tp-title">${title}</div>
+    ${credit ? `<div class="tp-credit">${credit}</div>` : ''}
+    ${author ? `<div class="tp-author">by\n${author}</div>` : ''}
+    ${source ? `<div class="tp-source">${source}</div>` : ''}
+  </div>
+  <div class="tp-mid-gap"></div>
+  ${(contact || draftDate) ? `<div class="tp-contact tp-contact-${contactPos}">${contact ? `<div>${contact.replace(/\n/g, '<br>')}</div>` : ''}${draftDate ? `<div>${draftDate}</div>` : ''}</div>` : ''}
+</div>\n`;
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+/* Page setup — explicit margins so all pages are identical; page numbers via
+   CSS @page margin boxes; title page unnumbered via @page :first */
+@page {
+  size: letter;
+  margin: 1in 1in 1in 1.5in;
+  @top-right {
+    content: counter(page) ".";
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 12pt;
+  }
+}
+@page :first {
+  @top-right { content: none; }
+}
+
+/* Base */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12pt;
+  line-height: 1.0;
+  color: #000;
+  background: #fff;
+}
+
+/* All blocks share vertical spacing — no first-child exception,
+   matching the WYSIWYG where the page-number widget precedes content */
+p { margin-top: 1em; }
+
+/* Block types */
+.scene-heading {
+  text-transform: uppercase;
+  text-decoration: underline;
+  break-after: avoid;   /* keep heading with its first action line */
+}
+.action { }
+.character {
+  margin-left: 2.2in;
+  text-transform: uppercase;
+  break-after: avoid;   /* keep character name with dialogue */
+}
+.dialogue {
+  margin-left: 1.0in;
+  margin-right: 1.5in;
+}
+.parenthetical {
+  margin-left: 1.6in;
+  margin-right: 1.5in;
+  break-after: avoid;
+}
+.transition {
+  text-align: right;
+  font-style: italic;
+}
+.centered { text-align: center; }
+.lyric { font-style: italic; }
+.note { color: #666; }
+
+/* Manual page break */
+.page-break { page-break-before: always; }
+
+/* Title page layout — flexbox so dimensions are reliable in print context */
+.title-page {
+  display: flex;
+  flex-direction: column;
+  height: 9in;       /* @page margin is 1in top + 1in bottom; content area = 9in */
+  page-break-after: always;
+}
+.tp-top-gap  { flex: 0 0 3.6in; }   /* 40% of 9in pushes title to ~40% down */
+.tp-center   { flex: 0 0 auto; text-align: center; }
+.tp-mid-gap  { flex: 1 1 auto; }    /* remaining space before contact */
+.tp-title    { font-size: 12pt; text-transform: uppercase; margin-bottom: 1em; }
+.tp-credit   { font-size: 12pt; margin-bottom: 0.25em; }
+.tp-author   { font-size: 12pt; white-space: pre-line; }
+.tp-source   { font-size: 12pt; margin-top: 1em; }
+.tp-contact  { flex: 0 0 auto; font-size: 12pt; line-height: 1.5; }
+.tp-contact-left  { text-align: left;  }
+.tp-contact-right { text-align: right; }
+</style>
+</head>
+<body>
+${titlePageHtml}${body}
+</body>
+</html>`;
+}
+
+async function exportPdf() {
+  const html = generatePrintHtml();
+  await window.screenwriterAPI.exportPdf({ html });
+}
+
+function printScript() {
+  const html = generatePrintHtml();
+  // Use a hidden iframe so the native print dialog opens in the current window
+  // context (reliable on all platforms) rather than a background BrowserWindow.
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:0;height:0;border:none;';
+  document.body.appendChild(iframe);
+  const cleanup = () => { try { document.body.removeChild(iframe); } catch {} };
+  iframe.addEventListener('load', () => {
+    try {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    } finally {
+      // Small delay so the print dialog can fully initialise before we remove the iframe
+      setTimeout(cleanup, 1000);
+    }
+  });
+  const blob = new Blob([html], { type: 'text/html' });
+  iframe.src = URL.createObjectURL(blob);
 }
 
 // ============================================================
@@ -635,6 +861,9 @@ async function init() {
   const { doc } = fountainToDoc('', screenplaySchema);
   createEditor(doc);
 
+  // Initialize find bar UI
+  initFindBar();
+
   // --- Format buttons ---
   [btnBold, btnItalic, btnUnderline].forEach(btn => {
     btn.addEventListener('mousedown', e => e.preventDefault());
@@ -736,6 +965,15 @@ async function init() {
     });
   });
 
+  // Delete title page button
+  document.getElementById('sp-delete-title-page').addEventListener('click', () => {
+    setTitlePageData({ title: '', credit: '', author: '', source: '', draftDate: '', contact: '', contactPosition: 'left' });
+    refreshTitlePageInEditor(editorPaper);
+    if (editorView) editorView.dispatch(editorView.state.tr);
+    syncSidePanelFromData();
+    setDirty(true);
+  });
+
   // --- Title page wizard ---
   document.getElementById('tp-wiz-cancel').addEventListener('click', () => {
     hideTitlePageWizard(editorView?.dom);
@@ -805,6 +1043,8 @@ async function init() {
   window.screenwriterAPI.onMenuSave(saveFile);
   window.screenwriterAPI.onMenuSaveAs(saveFileAs);
   window.screenwriterAPI.onMenuExportFdx(exportFdx);
+  window.screenwriterAPI.onMenuExportPdf(exportPdf);
+  window.screenwriterAPI.onMenuPrint(printScript);
   window.screenwriterAPI.onMenuToggleSourceMode(toggleSourceMode);
   window.screenwriterAPI.onMenuInsertTitlePage(showTitlePageWizard);
   window.screenwriterAPI.onMenuInsertPageBreak(() => {
@@ -876,6 +1116,7 @@ async function init() {
     const on = autosave.isEnabled();
     btnAutosaveToggle.classList.toggle('active', on);
     btnAutosaveToggle.title = on ? 'Autosave: On (click to disable)' : 'Autosave: Off (click to enable)';
+    btnAutosaveToggle.innerHTML = `Autosave <span class="autosave-status ${on ? 'on' : 'off'}">${on ? 'ON' : 'OFF'}</span>`;
   }
   btnAutosaveToggle.addEventListener('mousedown', e => e.preventDefault());
   btnAutosaveToggle.addEventListener('click', () => {

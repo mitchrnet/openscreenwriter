@@ -1,8 +1,12 @@
 'use strict';
 
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+
+// Must be set before app.whenReady() so the macOS menu bar shows the correct name
+app.setName('OpenScreenwriter');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const crypto = require('crypto');
 
 // Per-window state
@@ -198,6 +202,8 @@ function buildMenu() {
         { label: 'Save As...', accelerator: 'CmdOrCtrl+Shift+S', click: send('menu:saveAs') },
         { type: 'separator' },
         { label: 'Export as FDX...', accelerator: 'CmdOrCtrl+E', click: send('menu:exportFdx') },
+        { label: 'Export as PDF...', accelerator: 'CmdOrCtrl+Shift+E', click: send('menu:exportPdf') },
+        { label: 'Print...', accelerator: 'CmdOrCtrl+P', click: send('menu:print') },
         { type: 'separator' },
         ...(isMac ? [] : [{ role: 'quit' }]),
       ],
@@ -313,6 +319,72 @@ ipcMain.handle('dialog:exportFdx', async (event, { fdxContent }) => {
   if (canceled || !filePath) return null;
   try { fs.writeFileSync(filePath, fdxContent, 'utf-8'); } catch { return null; }
   return filePath;
+});
+
+ipcMain.handle('dialog:exportPdf', async (event, { html }) => {
+  const win = getWin(event);
+  const currentPath = getFilePath(win);
+  const base = currentPath
+    ? path.basename(currentPath, path.extname(currentPath))
+    : 'screenplay';
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    defaultPath: `${base}.pdf`,
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  });
+  if (canceled || !filePath) return null;
+
+  // Write the print HTML to a temp file so the hidden window can load it
+  // as a file:// URL (avoids data URI encoding issues with special characters).
+  const tmpHtml = path.join(os.tmpdir(), `openscreenwriter-print-${Date.now()}.html`);
+  try {
+    fs.writeFileSync(tmpHtml, html, 'utf-8');
+
+    const printWin = new BrowserWindow({
+      show: false,
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
+    });
+
+    await printWin.loadFile(tmpHtml);
+
+    const pdfData = await printWin.webContents.printToPDF({
+      printBackground: false,
+      pageSize: 'Letter',
+      margins: { marginType: 'none' },
+    });
+
+    printWin.close();
+    fs.writeFileSync(filePath, pdfData);
+    return filePath;
+  } catch {
+    return null;
+  } finally {
+    try { fs.unlinkSync(tmpHtml); } catch {}
+  }
+});
+
+ipcMain.handle('dialog:print', async (event, { html }) => {
+  const tmpHtml = path.join(os.tmpdir(), `openscreenwriter-print-${Date.now()}.html`);
+  let printWin;
+  try {
+    fs.writeFileSync(tmpHtml, html, 'utf-8');
+    printWin = new BrowserWindow({
+      show: false,
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
+    });
+    await printWin.loadFile(tmpHtml);
+    await new Promise((resolve, reject) => {
+      printWin.webContents.print({ silent: false, printBackground: false }, (success, reason) => {
+        if (!success && reason !== 'cancelled') reject(new Error(reason));
+        else resolve();
+      });
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try { fs.unlinkSync(tmpHtml); } catch {}
+    if (printWin && !printWin.isDestroyed()) printWin.close();
+  }
 });
 
 ipcMain.handle('app:getVersion', () => app.getVersion());

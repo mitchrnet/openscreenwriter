@@ -66,8 +66,23 @@
       <button class="toolbar-btn toolbar-fmt-btn" id="btn-underline" title="Underline (Ctrl+U)"><u>U</u></button>
     </div>
     <div class="toolbar-spacer"></div>
-    <button class="toolbar-btn toolbar-fmt-btn" id="btn-autosave-toggle" title="Autosave: On">AS</button>
+    <button class="toolbar-btn toolbar-fmt-btn" id="btn-autosave-toggle" title="Autosave: On">Autosave</button>
     <button class="toolbar-btn toolbar-fmt-btn" id="btn-theme-toggle" title="Toggle theme"></button>
+  </div>
+
+  <!-- Find & Replace bar -->
+  <div id="find-bar" style="display:none">
+    <input id="find-input" type="text" placeholder="Find…" autocomplete="off" spellcheck="false" />
+    <button id="find-prev" title="Previous (Shift+Enter)">↑</button>
+    <button id="find-next" title="Next (Enter)">↓</button>
+    <span id="find-count"></span>
+    <button id="find-toggle-replace" title="Toggle Replace">Replace</button>
+    <div id="replace-row" style="display:none">
+      <input id="replace-input" type="text" placeholder="Replace with…" autocomplete="off" spellcheck="false" />
+      <button id="replace-one">Replace</button>
+      <button id="replace-all">All</button>
+    </div>
+    <button id="find-close" title="Close (Escape)">✕</button>
   </div>
 
   <div id="editor-container">
@@ -114,6 +129,10 @@
             <button class="sp-toggle-btn" data-pos="right">Right</button>
           </div>
         </div>
+        <div class="sp-divider"></div>
+        <div class="sp-field">
+          <button class="startup-action-btn sp-delete-tp-btn" id="sp-delete-title-page" style="width:100%;color:#c0392b;">Delete Title Page</button>
+        </div>
       </div>
     </div>
     <div id="editor-pane">
@@ -127,7 +146,11 @@
   <div id="statusbar">
     <span id="status-filename">untitled.fountain</span>
     <span id="status-autosave"></span>
-    <span id="status-pages">~1 page</span>
+    <div id="status-counts">
+      <span id="status-pages">~1 page</span>
+      <span id="status-words"></span>
+      <span id="status-scenes"></span>
+    </div>
   </div>
 
   <!-- Custom context menu -->
