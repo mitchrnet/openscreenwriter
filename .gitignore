@@ -1,5 +1,6 @@
 node_modules/
 dist/
+docs/
 renderer/editor.bundle.js
 *.log
 .DS_Store
