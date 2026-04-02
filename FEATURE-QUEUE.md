@@ -1,7 +1,7 @@
 # OpenScreenwriter — Feature Queue
 
 *Managed by Axiom. Features are batched into v1.x releases — not released individually.*
-*Last updated: 2026-04-01*
+*Last updated: 2026-04-02*
 
 ---
 
@@ -17,38 +17,6 @@
 ## Priority Queue
 
 ### HIGH
-
-#### Scene Navigator Panel
-- **Description:** Sidebar panel listing all scene headings in document order. Click to jump. Drag to reorder scenes (reorders the underlying ProseMirror nodes).
-- **Acceptance criteria:**
-  - Panel shows all `scene_heading` nodes in order, updating live as document changes
-  - Click scrolls editor to that scene
-  - Drag-to-reorder moves the full scene block (heading + content until next heading)
-  - Panel toggle via keyboard shortcut and View menu
-- **Status:** Pending
-
-#### Live Page Count
-- **Description:** Accurate running page count shown in toolbar/footer. Not an approximation — uses real text measurement.
-- **Acceptance criteria:**
-  - Page count updates on every edit
-  - Matches industry standard (1 page ≈ 55 lines of action, roughly 1 min of screen time)
-  - Survives zoom level changes
-  - Does not require a visible rendered area to compute
-- **Notes:** `pretext` library (canvas-based DOM-free measurement) is the recommended approach. Research spike needed before implementation.
-- **Status:** Pending
-
-#### Auto Scene Numbering
-- **Description:** Scene headings display auto-incrementing numbers (e.g., `1.`, `2.`) as decorations — not embedded in the text, so they don't export to Fountain unless explicitly toggled.
-- **Acceptance criteria:**
-  - Numbers render as ProseMirror decorations, not document content
-  - Numbers update live as scenes are added/removed/reordered
-  - Toggle on/off via View menu
-  - Export to PDF includes numbers when toggle is on
-- **Status:** Pending
-
----
-
-### MEDIUM
 
 #### Character List / Statistics
 - **Description:** Panel or modal showing all unique character names in the script, scene count per character, line count.
@@ -110,3 +78,4 @@
 | Title Page wizard + side panel | Sprint 4 — Ephron | v1.3.0 |
 | Print support (Cmd+P) | Sprint 4 — Ephron | v1.3.0 |
 | Title page in PDF export | Sprint 4 — Ephron | v1.3.0 |
+| Scene Navigator Panel | — | pre-existing |

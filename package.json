@@ -17,7 +17,8 @@
     "dist": "npm run build && electron-builder",
     "dist:dir": "npm run build && electron-builder --dir",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "playwright test tests/e2e/"
   },
   "build": {
     "appId": "com.mitchrnet.openscreenwriter",
@@ -39,9 +40,11 @@
     }
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "electron": "^34.0.0",
     "electron-builder": "^25.0.0",
     "esbuild": "^0.27.3",
+    "playwright": "^1.59.1",
     "prosemirror-commands": "^1.7.1",
     "prosemirror-history": "^1.5.0",
     "prosemirror-inputrules": "^1.5.1",
