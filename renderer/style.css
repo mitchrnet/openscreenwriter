@@ -465,12 +465,6 @@ html, body {
   color: var(--accent2);
 }
 
-/* Source mode indicator appended to filename */
-#status-filename.source-mode-active::after {
-  content: ' — SOURCE';
-  color: var(--accent);
-  font-weight: 600;
-}
 
 /* Autosave indicator in the status bar */
 #status-autosave {
@@ -939,6 +933,81 @@ body[data-theme="light"] .scene-nav-item:hover {
 }
 body[data-theme="light"] #side-panel::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.15);
+}
+
+/* ---- Character list ---- */
+
+.char-sort-bar {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem 0.25rem;
+  flex-shrink: 0;
+}
+
+.char-sort-btn {
+  flex: 1;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.char-sort-btn:hover {
+  color: var(--text);
+  border-color: var(--accent2);
+}
+
+.char-sort-btn.active {
+  color: var(--accent2);
+  border-color: var(--accent2);
+}
+
+.char-list-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 0.4rem 1rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.1s;
+  text-align: left;
+}
+
+.char-list-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+body[data-theme="light"] .char-list-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.char-list-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: var(--font-ui);
+  color: var(--accent2);
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.char-list-stats {
+  font-size: 0.65rem;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  margin-top: 0.1rem;
 }
 
 /* ---- Page numbers ---- */

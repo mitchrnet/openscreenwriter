@@ -221,7 +221,7 @@ function buildMenu() {
     {
       label: 'View',
       submenu: [
-        { label: 'Source Mode', accelerator: 'CmdOrCtrl+Shift+M', click: send('menu:toggleSourceMode') },
+        { label: 'Side Panel', accelerator: 'CmdOrCtrl+\\', click: send('menu:toggleSidePanel') },
         { type: 'separator' },
         {
           label: 'Autosave',

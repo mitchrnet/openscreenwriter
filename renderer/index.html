@@ -89,12 +89,20 @@
     <div id="side-panel">
       <div class="side-panel-tabs">
         <button class="side-panel-tab active" data-tab="scenes">Scenes</button>
+        <button class="side-panel-tab" data-tab="characters">Characters</button>
         <button class="side-panel-tab" data-tab="script-info">Script Info</button>
       </div>
       <div class="side-panel-content" id="tab-scenes">
         <div id="scene-nav-list">
           <div class="scene-nav-empty">No scenes yet</div>
         </div>
+      </div>
+      <div class="side-panel-content" id="tab-characters" style="display:none">
+        <div class="char-sort-bar">
+          <button class="char-sort-btn active" data-sort="name">Name</button>
+          <button class="char-sort-btn" data-sort="scenes">Scenes ↓</button>
+        </div>
+        <div id="character-list"></div>
       </div>
       <div class="side-panel-content" id="tab-script-info" style="display:none">
         <div class="sp-field">
@@ -138,7 +146,6 @@
     <div id="editor-pane">
       <div id="editor-paper">
         <div id="wysiwyg-editor"></div>
-        <textarea id="source-editor" style="display:none" spellcheck="false"></textarea>
       </div>
     </div>
   </div>
