@@ -37,9 +37,15 @@ contextBridge.exposeInMainWorld('screenwriterAPI', {
   onMenuInsertTitlePage:  (cb) => ipcRenderer.on('menu:insertTitlePage',  () => cb()),
   onMenuInsertPageBreak:  (cb) => ipcRenderer.on('menu:insertPageBreak',  () => cb()),
   onMenuInsertLineBreak:  (cb) => ipcRenderer.on('menu:insertLineBreak',  () => cb()),
+  onMenuAddNote:          (cb) => ipcRenderer.on('menu:addNote',          () => cb()),
   onMenuAbout:            (cb) => ipcRenderer.on('menu:about',            () => cb()),
   onMenuToggleAutosave:         (cb) => ipcRenderer.on('menu:toggleAutosave',         (_, checked) => cb(checked)),
   onMenuOpenPath:         (cb) => ipcRenderer.on('menu:openPath',         (_, filePath) => cb(filePath)),
+
+  // Notes sidecar (stored alongside .fountain file as <path>.notes.json)
+  notesWrite:  (payload) => ipcRenderer.invoke('notes:write',  payload),
+  notesRead:   (payload) => ipcRenderer.invoke('notes:read',   payload),
+  notesDelete: (payload) => ipcRenderer.invoke('notes:delete', payload),
 
   // Close-guard: renderer → main state sync
   notifyDirtyState:    (isDirty) => ipcRenderer.send('window:dirtyChanged',   isDirty),

@@ -60,5 +60,8 @@ export function createScreenplayKeymap(schema, callbacks = {}) {
   if (callbacks.findReplace) {
     bindings['Mod-h'] = () => { callbacks.findReplace(); return true; };
   }
+  if (callbacks.addNote) {
+    bindings['Mod-Shift-n'] = () => { callbacks.addNote(); return true; };
+  }
   return keymap(bindings);
 }

@@ -1,7 +1,7 @@
 # OpenScreenwriter — Feature Queue
 
 *Managed by Axiom. Features are batched into v1.x releases — not released individually.*
-*Last updated: 2026-04-02*
+*Last updated: 2026-04-02 (post-Sprint Sorkin)*
 
 ---
 
@@ -17,14 +17,6 @@
 ## Priority Queue
 
 ### HIGH
-
-#### Character List / Statistics
-- **Description:** Panel or modal showing all unique character names in the script, scene count per character, line count.
-- **Acceptance criteria:**
-  - Derived from document content, updates live
-  - Sortable by name / scene count
-  - Click character name to jump to first appearance
-- **Status:** Pending
 
 #### Notes / Comments (Non-Printing Annotations)
 - **Description:** Attach color-coded notes to text ranges. Notes are visible in editor but don't export to PDF or Fountain.
@@ -79,3 +71,4 @@
 | Print support (Cmd+P) | Sprint 4 — Ephron | v1.3.0 |
 | Title page in PDF export | Sprint 4 — Ephron | v1.3.0 |
 | Scene Navigator Panel | — | pre-existing |
+| Character List / Statistics panel | Sprint 5 — Sorkin | v1.4.0 |
