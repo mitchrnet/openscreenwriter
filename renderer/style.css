@@ -151,6 +151,29 @@ html, body {
   /* min-height stays at CSS 11in; paper grows naturally with content */
 }
 
+/* ---- Scene numbers ---- */
+#wysiwyg-editor {
+  counter-reset: scene-num;
+}
+
+body.scene-numbers-on .ws-scene-heading {
+  counter-increment: scene-num;
+  position: relative;
+}
+
+body.scene-numbers-on .ws-scene-heading::before {
+  content: counter(scene-num);
+  position: absolute;
+  left: -1.15in;
+  font-family: var(--font-mono);
+  font-size: inherit;
+  font-weight: normal;
+  text-decoration: none;
+  color: var(--muted);
+  user-select: none;
+  pointer-events: none;
+}
+
 /* ---- WYSIWYG editor ---- */
 #wysiwyg-editor {
   font-family: var(--font-mono);
