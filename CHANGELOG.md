@@ -1,5 +1,34 @@
 # Changelog
 
+### v1.4.0 — 2026-04-02
+
+**Notes / Comments**
+- Non-printing annotations — add color-coded highlights (yellow, green, pink) to any text selection
+- Notes visible in the editor; invisible in Fountain export, FDX export, and PDF
+- Notes panel in the side panel: view all notes, edit text and color, delete
+- `Cmd+Shift+N` keyboard shortcut and Insert menu entry to add a note from the current selection
+- Notes persist alongside the script in a `.fountain.notes.json` sidecar file
+
+**Character List**
+- New Character List panel in the side panel — all named characters sorted by scene count
+- Click any name to jump to their first scene appearance
+- Updates live as you type
+
+**Scene Numbers**
+- View → Scene Numbers toggle — shows scene numbers in the left margin of the editor
+- Scene numbers also appear in PDF export when the toggle is on
+- State persists across sessions
+
+**PDF & Print improvements**
+- Fixed title page layout in PDF export — correct 1in/1.5in margins (regression from v1.3)
+- Improved page-break rules: character cues stay with their dialogue, scene headings stay with action lines, orphan/widow control on action and dialogue blocks
+
+**UI**
+- Script Info moved from the side panel tab strip to an animated footer drawer — keeps the panel tabs uncluttered as more panels are added
+- Page zoom (Ctrl+scroll / Cmd+scroll) now scales only the editor page; the app UI chrome no longer zooms with it
+
+---
+
 ### v1.3.0 — 2026-03-25
 
 **Title Page in PDF Export**

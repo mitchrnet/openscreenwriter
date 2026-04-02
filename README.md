@@ -15,14 +15,22 @@ A minimalist Electron app for writing screenplays in [Fountain](https://fountain
 - **WYSIWYG editor** — formatted screenplay is the editing surface; no markup visible during normal writing
 - **FDX import** — open Final Draft `.fdx` files and edit them as Fountain
 - **FDX export** — exports valid Final Draft 5 XML (`Ctrl+E`)
+- **PDF export** — exports a print-ready PDF with proper screenplay margins, page numbers, and optional scene numbers
+- **Print** — prints directly via the native OS print dialog (`Cmd/Ctrl+P`)
+- **Notes / Comments** — add non-printing color-coded annotations to any selection; visible in the editor, invisible in export and PDF; persisted in a sidecar file
+- **Character List** — side panel listing all named characters sorted by scene count, with click-to-jump
+- **Scene Numbers** — View → Scene Numbers toggle shows numbers in the editor margin and in PDF export
 - **Source Mode** — toggle raw Fountain text for direct editing (`Ctrl+Shift+M`)
+- **Find & Replace** — `Cmd/Ctrl+F` to find, `Cmd/Ctrl+H` to find and replace
+- **Character autocomplete** — dropdown of previously used character names when typing in a CHARACTER block
 - **Smart Enter** — context-aware block creation: after a character cue creates dialogue; after dialogue continues dialogue; otherwise creates action
 - **Tab cycling** — cycles the current block: Action → Scene Heading → Character → Parenthetical → Transition
 - **Inline formatting** — `Ctrl+B` bold, `Ctrl+I` italic, `Ctrl+U` underline; renders live in the editor
 - **Title page wizard** — GUI for title, credit, author, source, draft date, and contact fields
 - **Scene navigation panel** — side panel listing all scene headings with click-to-jump
 - **Pagination** — animated page-break markers at 55-line intervals; running page count in status bar
-- **Ctrl+scroll zoom** — zoom the paper in/out; `Ctrl+0` resets to 100%
+- **Autosave** — debounced write to the open file 2 seconds after you stop typing
+- **Ctrl/Cmd+scroll zoom** — zoom the paper in/out; `Ctrl+0` / `Cmd+0` resets to 100%
 - **Dark / Light theme** — selectable at startup, persisted across sessions
 - **Open / Save / Save As** — standard file operations for `.fountain` files
 
@@ -36,20 +44,25 @@ Pre-built Windows installer available from [**GitHub Releases**](https://github.
 
 ## Keyboard Shortcuts
 
-| Action             | Shortcut           |
-|--------------------|--------------------|
-| Open file          | `Ctrl+O`           |
-| Save               | `Ctrl+S`           |
-| Save As            | `Ctrl+Shift+S`     |
-| Export FDX         | `Ctrl+E`           |
-| Toggle Source Mode | `Ctrl+Shift+M`     |
-| Bold               | `Ctrl+B`           |
-| Italic             | `Ctrl+I`           |
-| Underline          | `Ctrl+U`           |
-| Cycle element type | `Tab`              |
-| Zoom in / out      | `Ctrl+scroll`      |
-| Reset zoom         | `Ctrl+0`           |
-| Dismiss startup    | `Escape`           |
+| Action             | Shortcut                  |
+|--------------------|---------------------------|
+| Open file          | `Cmd/Ctrl+O`              |
+| Save               | `Cmd/Ctrl+S`              |
+| Save As            | `Cmd/Ctrl+Shift+S`        |
+| Export FDX         | `Cmd/Ctrl+E`              |
+| Export PDF         | `Cmd/Ctrl+Shift+E`        |
+| Print              | `Cmd/Ctrl+P`              |
+| Find               | `Cmd/Ctrl+F`              |
+| Find & Replace     | `Cmd/Ctrl+H`              |
+| Add note           | `Cmd/Ctrl+Shift+N`        |
+| Toggle Source Mode | `Cmd/Ctrl+Shift+M`        |
+| Bold               | `Cmd/Ctrl+B`              |
+| Italic             | `Cmd/Ctrl+I`              |
+| Underline          | `Cmd/Ctrl+U`              |
+| Cycle element type | `Tab`                     |
+| Zoom in / out      | `Cmd/Ctrl+scroll`         |
+| Reset zoom         | `Cmd/Ctrl+0`              |
+| Dismiss startup    | `Escape`                  |
 
 ---
 
