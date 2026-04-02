@@ -30,6 +30,11 @@ import {
 } from './commands.js';
 import { updateCharacterList } from './character-list.js';
 import {
+  createNotesPlugin, notesPluginKey,
+  addNote as addNoteToEditor, deleteNote as deleteNoteFromEditor,
+  editNote as editNoteInEditor, getNotes, rehydrateNotes,
+} from './notes.js';
+import {
   getTitlePageData, setTitlePageData, hasTitlePage,
   parseTitlePageTokens, titlePageToFountain,
   renderTitlePageContainer, refreshTitlePageInEditor,
@@ -66,6 +71,9 @@ const tabScenes           = document.getElementById('tab-scenes');
 const tabScriptInfo       = document.getElementById('tab-script-info');
 const tabCharacters       = document.getElementById('tab-characters');
 const characterListEl     = document.getElementById('character-list');
+const tabNotes            = document.getElementById('tab-notes');
+const notesListEl         = document.getElementById('notes-list');
+const addNoteModal        = document.getElementById('add-note-modal');
 const titlePageWizardEl   = document.getElementById('title-page-wizard');
 const startupModal        = document.getElementById('startup-modal');
 
@@ -119,10 +127,12 @@ function createEditor(doc) {
         },
         find:        () => openFindBar(false),
         findReplace: () => openFindBar(true),
+        addNote:     () => openAddNoteModal(),
       }),
       keymap(baseKeymap),
       paginationPlugin,
       createFindReplacePlugin({ onMatchCount: updateFindCount }),
+      createNotesPlugin(),
     ],
   });
 
@@ -151,6 +161,7 @@ function createEditor(doc) {
           const activeTab = getActiveTab();
           if (activeTab === 'scenes') updateSceneNav();
           else if (activeTab === 'characters') updateCharactersPanel();
+          else if (activeTab === 'notes') updateNotesPanel();
         }
 
         updateWordSceneCount(newState.doc);
@@ -300,6 +311,177 @@ function updateCharactersPanel() {
   updateCharacterList(characterListEl, editorView.state.doc, charSortBy, editorView);
 }
 
+function updateNotesPanel() {
+  if (!editorView) return;
+  const notes = getNotes(editorView);
+  notesListEl.innerHTML = '';
+
+  if (notes.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'notes-empty';
+    empty.textContent = 'No notes yet';
+    notesListEl.appendChild(empty);
+    return;
+  }
+
+  for (const note of notes) {
+    const item = document.createElement('div');
+    item.className = 'note-item';
+
+    const dot = document.createElement('div');
+    dot.className = `note-item-dot note-item-dot-${note.color}`;
+
+    const body = document.createElement('div');
+    body.className = 'note-item-body';
+
+    const textEl = document.createElement('div');
+    textEl.className = 'note-item-text';
+    textEl.textContent = note.text;
+
+    // Show a short excerpt of the annotated text as context
+    const contextEl = document.createElement('div');
+    contextEl.className = 'note-item-context';
+    try {
+      const excerpt = editorView.state.doc.textBetween(note.from, note.to, ' ');
+      contextEl.textContent = '"' + excerpt.slice(0, 50) + (excerpt.length > 50 ? '…' : '') + '"';
+    } catch {}
+
+    body.appendChild(textEl);
+    body.appendChild(contextEl);
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'note-item-edit';
+    editBtn.textContent = 'Edit';
+    editBtn.title = 'Edit note';
+    editBtn.addEventListener('mousedown', e => e.preventDefault());
+    editBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      openEditNoteModal(note);
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'note-item-delete';
+    delBtn.textContent = '✕';
+    delBtn.title = 'Delete note';
+    delBtn.addEventListener('mousedown', e => e.preventDefault());
+    delBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      deleteNoteFromEditor(editorView, note.id);
+      saveNotesSidecar();
+      updateNotesPanel();
+    });
+
+    item.appendChild(dot);
+    item.appendChild(body);
+    item.appendChild(editBtn);
+    item.appendChild(delBtn);
+
+    // Click anywhere on the item (except buttons) to jump to position
+    item.addEventListener('mousedown', e => e.preventDefault());
+    item.addEventListener('click', () => {
+      if (!editorView) return;
+      try {
+        const tr = editorView.state.tr;
+        const $pos = tr.doc.resolve(Math.min(note.from, tr.doc.content.size));
+        tr.setSelection(TextSelection.near($pos));
+        tr.scrollIntoView();
+        editorView.dispatch(tr);
+        editorView.focus();
+      } catch {}
+    });
+
+    notesListEl.appendChild(item);
+  }
+}
+
+// ============================================================
+// Notes sidecar persistence
+// ============================================================
+
+async function saveNotesSidecar() {
+  if (!currentFilePath || !editorView) return;
+  const notes = getNotes(editorView);
+  await window.screenwriterAPI.notesWrite({ filePath: currentFilePath, notes });
+}
+
+async function loadNotesSidecar(filePath) {
+  if (!filePath || !editorView) return;
+  const notes = await window.screenwriterAPI.notesRead({ filePath });
+  if (notes && notes.length > 0) {
+    rehydrateNotes(editorView, notes);
+  }
+}
+
+// ============================================================
+// Add Note modal
+// ============================================================
+
+let _pendingNoteRange = null; // { from, to } for new note; null when editing
+let _editingNoteId    = null; // id of note being edited; null when adding
+let _selectedNoteColor = 'yellow';
+
+function openAddNoteModal() {
+  if (!editorView) return;
+  const { from, to, empty } = editorView.state.selection;
+  if (empty) return;
+
+  _pendingNoteRange = { from, to };
+  _editingNoteId    = null;
+  _selectedNoteColor = 'yellow';
+
+  document.getElementById('add-note-text').value = '';
+  document.getElementById('add-note-submit').textContent = 'Add Note';
+  addNoteModal.querySelectorAll('.note-color-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.noteColor === 'yellow');
+  });
+
+  addNoteModal.style.display = 'flex';
+  setTimeout(() => document.getElementById('add-note-text').focus(), 50);
+}
+
+function openEditNoteModal(note) {
+  _pendingNoteRange  = null;
+  _editingNoteId     = note.id;
+  _selectedNoteColor = note.color;
+
+  document.getElementById('add-note-text').value = note.text;
+  document.getElementById('add-note-submit').textContent = 'Save';
+  addNoteModal.querySelectorAll('.note-color-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.noteColor === note.color);
+  });
+
+  addNoteModal.style.display = 'flex';
+  setTimeout(() => document.getElementById('add-note-text').focus(), 50);
+}
+
+function closeAddNoteModal() {
+  addNoteModal.style.display = 'none';
+  _pendingNoteRange = null;
+  _editingNoteId    = null;
+  if (editorView) editorView.focus();
+}
+
+function submitAddNoteModal() {
+  if (!editorView) return;
+  const text = document.getElementById('add-note-text').value.trim();
+  if (!text) return;
+
+  if (_editingNoteId) {
+    editNoteInEditor(editorView, _editingNoteId, text, _selectedNoteColor);
+  } else if (_pendingNoteRange) {
+    addNoteToEditor(editorView, _pendingNoteRange.from, _pendingNoteRange.to, text, _selectedNoteColor);
+  } else {
+    return;
+  }
+
+  saveNotesSidecar();
+  if (sidePanel.classList.contains('is-open') && getActiveTab() === 'notes') {
+    updateNotesPanel();
+  }
+
+  closeAddNoteModal();
+}
+
 function getActiveTab() {
   const active = sidePanel.querySelector('.side-panel-tab.active');
   return active ? active.dataset.tab : 'scenes';
@@ -312,6 +494,7 @@ function toggleSidePanel() {
   if (!visible) {
     updateSceneNav();
     updateCharactersPanel();
+    updateNotesPanel();
   }
 }
 
@@ -334,7 +517,7 @@ function toggleCharacterPanel() {
   sidePanel.querySelector('[data-tab="characters"]').classList.add('active');
   tabScenes.style.display     = 'none';
   tabCharacters.style.display = 'block';
-  tabScriptInfo.style.display = 'none';
+  tabNotes.style.display      = 'none';
 
   updateCharactersPanel();
 }
@@ -344,6 +527,14 @@ function toggleCharacterPanel() {
 // ============================================================
 
 function showContextMenu(x, y) {
+  // Show/hide "Add Note" based on whether text is selected
+  const addNoteItem = document.getElementById('ctx-add-note');
+  if (addNoteItem && editorView) {
+    const hasSelection = !editorView.state.selection.empty;
+    addNoteItem.style.display = hasSelection ? '' : 'none';
+    addNoteItem.previousElementSibling.style.display = hasSelection ? '' : 'none'; // divider
+  }
+
   contextMenu.style.display = 'block';
   const rect = contextMenu.getBoundingClientRect();
   const maxX = window.innerWidth - rect.width - 4;
@@ -393,6 +584,9 @@ async function handleContextAction(action) {
     case 'underline':
       toggleMark(screenplaySchema.marks.underline)(editorView.state, editorView.dispatch);
       break;
+    case 'addNote':
+      openAddNoteModal();
+      return; // don't call editorView.focus() below — modal needs focus
   }
   editorView.focus();
 }
@@ -456,6 +650,11 @@ async function openFile(preloaded = null) {
     addRecentFile(result.filePath);
   }
 
+  // Load notes sidecar for named (non-FDX) files
+  if (!isFdx && result.filePath) {
+    await loadNotesSidecar(result.filePath);
+  }
+
   editorView.focus();
   if (sidePanel.classList.contains('is-open')) updateSceneNav();
 }
@@ -475,6 +674,9 @@ async function saveFile() {
   setDirty(false);
   addRecentFile(savedPath);
 
+  // Save notes alongside the document
+  await saveNotesSidecar();
+
   // Clean up autosave after a successful manual save
   if (autosave) await autosave.onManualSave(savedPath, previousPath);
 }
@@ -490,6 +692,9 @@ async function saveFileAs() {
   currentFilePath = savedPath;
   setDirty(false);
   addRecentFile(savedPath);
+
+  // Save notes alongside the document
+  await saveNotesSidecar();
 
   // Clean up autosave after a successful Save As
   if (autosave) await autosave.onManualSave(savedPath, previousPath);
@@ -937,10 +1142,11 @@ async function init() {
       sidePanel.querySelectorAll('.side-panel-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       const target = tab.dataset.tab;
-      tabScenes.style.display     = target === 'scenes'      ? 'block' : 'none';
-      tabCharacters.style.display = target === 'characters'  ? 'block' : 'none';
-      tabScriptInfo.style.display = target === 'script-info' ? 'block' : 'none';
+      tabScenes.style.display     = target === 'scenes'     ? 'block' : 'none';
+      tabCharacters.style.display = target === 'characters' ? 'block' : 'none';
+      tabNotes.style.display      = target === 'notes'      ? 'block' : 'none';
       if (target === 'characters') updateCharactersPanel();
+      if (target === 'notes') updateNotesPanel();
     });
   });
 
@@ -952,6 +1158,15 @@ async function init() {
       charSortBy = btn.dataset.sort;
       updateCharactersPanel();
     });
+  });
+
+  // Script Info footer button — toggles the drawer below the panel footer
+  const btnScriptInfo = document.getElementById('btn-script-info');
+  btnScriptInfo.addEventListener('mousedown', e => e.preventDefault());
+  btnScriptInfo.addEventListener('click', () => {
+    const open = tabScriptInfo.classList.contains('is-open');
+    tabScriptInfo.classList.toggle('is-open', !open);
+    btnScriptInfo.classList.toggle('active', !open);
   });
 
   // Script Info field inputs → update title page
@@ -1018,6 +1233,10 @@ async function init() {
     if (e.key === 'Escape') {
       hideElementDropdown();
       hideContextMenu();
+      if (addNoteModal.style.display !== 'none') {
+        closeAddNoteModal();
+        return;
+      }
       if (titlePageWizardEl.style.display !== 'none') {
         hideTitlePageWizard(editorView?.dom);
       }
@@ -1065,6 +1284,35 @@ async function init() {
       editorView.focus();
     }
   });
+  window.screenwriterAPI.onMenuAddNote(() => openAddNoteModal());
+
+  // --- Notes panel button ---
+  document.getElementById('btn-add-note').addEventListener('mousedown', e => e.preventDefault());
+  document.getElementById('btn-add-note').addEventListener('click', () => openAddNoteModal());
+
+  // --- Add Note modal ---
+  addNoteModal.querySelectorAll('.note-color-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      addNoteModal.querySelectorAll('.note-color-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _selectedNoteColor = btn.dataset.noteColor;
+    });
+  });
+  document.getElementById('add-note-cancel').addEventListener('click', closeAddNoteModal);
+  document.getElementById('add-note-submit').addEventListener('click', submitAddNoteModal);
+  document.getElementById('add-note-text').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      submitAddNoteModal();
+    }
+    if (e.key === 'Escape') {
+      closeAddNoteModal();
+    }
+  });
+  addNoteModal.addEventListener('mousedown', e => {
+    if (e.target === addNoteModal) closeAddNoteModal();
+  });
+
   window.screenwriterAPI.onMenuAbout(async () => {
     const version = await window.screenwriterAPI.getVersion();
     document.getElementById('about-version').textContent = `v${version}`;

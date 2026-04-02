@@ -119,6 +119,12 @@ function createWindow(fileToOpen = null) {
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
+  // Prevent Electron's built-in Ctrl+scroll / pinch zoom from zooming the
+  // entire webContents. The renderer handles zoom itself (editor paper only).
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.setVisualZoomLevelLimits(1, 1);
+  });
+
   // ── Unsaved-changes guard ────────────────────────────────────────────────
   win.on('close', async (e) => {
     if (closingBypass.has(win.id)) {
@@ -216,6 +222,8 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Page Break', click: send('menu:insertPageBreak') },
         { label: 'Line Break', click: send('menu:insertLineBreak') },
+        { type: 'separator' },
+        { label: 'Add Note...', accelerator: 'CmdOrCtrl+Shift+N', click: send('menu:addNote') },
       ],
     },
     {
@@ -499,6 +507,29 @@ ipcMain.handle('autosave:listAll', () => {
 
 ipcMain.on('autosave:cleanQuit', (event, { filePath }) => {
   try { deleteAutosave(autosavePathFor(filePath || null)); } catch {}
+});
+
+// ─── Notes sidecar ───────────────────────────────────────────────────────────
+
+ipcMain.handle('notes:write', (event, { filePath, notes }) => {
+  try {
+    fs.writeFileSync(filePath + '.notes.json', JSON.stringify(notes), 'utf8');
+    return true;
+  } catch { return false; }
+});
+
+ipcMain.handle('notes:read', (event, { filePath }) => {
+  try {
+    const raw = fs.readFileSync(filePath + '.notes.json', 'utf8');
+    return JSON.parse(raw);
+  } catch { return null; }
+});
+
+ipcMain.handle('notes:delete', (event, { filePath }) => {
+  try {
+    fs.unlinkSync(filePath + '.notes.json');
+    return true;
+  } catch { return false; }
 });
 
 // ─── App lifecycle ───────────────────────────────────────────────────────────
