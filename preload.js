@@ -33,16 +33,24 @@ contextBridge.exposeInMainWorld('screenwriterAPI', {
   onMenuExportFdx:        (cb) => ipcRenderer.on('menu:exportFdx',        () => cb()),
   onMenuExportPdf:        (cb) => ipcRenderer.on('menu:exportPdf',        () => cb()),
   onMenuPrint:            (cb) => ipcRenderer.on('menu:print',             () => cb()),
-  onMenuToggleSourceMode: (cb) => ipcRenderer.on('menu:toggleSourceMode', () => cb()),
+  onMenuToggleSidePanel:        (cb) => ipcRenderer.on('menu:toggleSidePanel',        () => cb()),
   onMenuInsertTitlePage:  (cb) => ipcRenderer.on('menu:insertTitlePage',  () => cb()),
   onMenuInsertPageBreak:  (cb) => ipcRenderer.on('menu:insertPageBreak',  () => cb()),
   onMenuInsertLineBreak:  (cb) => ipcRenderer.on('menu:insertLineBreak',  () => cb()),
+  onMenuAddNote:          (cb) => ipcRenderer.on('menu:addNote',          () => cb()),
   onMenuAbout:            (cb) => ipcRenderer.on('menu:about',            () => cb()),
-  onMenuToggleAutosave:   (cb) => ipcRenderer.on('menu:toggleAutosave',   (_, checked) => cb(checked)),
+  onMenuToggleSceneNumbers:     (cb) => ipcRenderer.on('menu:toggleSceneNumbers',     (_, checked) => cb(checked)),
+  onMenuToggleAutosave:         (cb) => ipcRenderer.on('menu:toggleAutosave',         (_, checked) => cb(checked)),
   onMenuOpenPath:         (cb) => ipcRenderer.on('menu:openPath',         (_, filePath) => cb(filePath)),
+
+  // Notes sidecar (stored alongside .fountain file as <path>.notes.json)
+  notesWrite:  (payload) => ipcRenderer.invoke('notes:write',  payload),
+  notesRead:   (payload) => ipcRenderer.invoke('notes:read',   payload),
+  notesDelete: (payload) => ipcRenderer.invoke('notes:delete', payload),
 
   // Close-guard: renderer → main state sync
   notifyDirtyState:    (isDirty) => ipcRenderer.send('window:dirtyChanged',   isDirty),
+  notifySceneNumbersState: (on) => ipcRenderer.send('window:sceneNumbersChanged', on),
   notifyAutosaveState: (enabled) => ipcRenderer.send('window:autosaveChanged', enabled),
   notifyReadyToClose:  ()        => ipcRenderer.send('window:readyToClose'),
 

@@ -119,6 +119,12 @@ function createWindow(fileToOpen = null) {
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
+  // Prevent Electron's built-in Ctrl+scroll / pinch zoom from zooming the
+  // entire webContents. The renderer handles zoom itself (editor paper only).
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.setVisualZoomLevelLimits(1, 1);
+  });
+
   // ── Unsaved-changes guard ────────────────────────────────────────────────
   win.on('close', async (e) => {
     if (closingBypass.has(win.id)) {
@@ -216,13 +222,24 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Page Break', click: send('menu:insertPageBreak') },
         { label: 'Line Break', click: send('menu:insertLineBreak') },
+        { type: 'separator' },
+        { label: 'Add Note...', accelerator: 'CmdOrCtrl+Shift+N', click: send('menu:addNote') },
       ],
     },
     {
       label: 'View',
       submenu: [
-        { label: 'Source Mode', accelerator: 'CmdOrCtrl+Shift+M', click: send('menu:toggleSourceMode') },
+        { label: 'Side Panel', accelerator: 'CmdOrCtrl+\\', click: send('menu:toggleSidePanel') },
         { type: 'separator' },
+        {
+          label: 'Scene Numbers',
+          type: 'checkbox',
+          checked: false,
+          click: (menuItem) => {
+            const win = getFocusedWin();
+            if (win) win.webContents.send('menu:toggleSceneNumbers', menuItem.checked);
+          },
+        },
         {
           label: 'Autosave',
           type: 'checkbox',
@@ -349,7 +366,16 @@ ipcMain.handle('dialog:exportPdf', async (event, { html }) => {
     const pdfData = await printWin.webContents.printToPDF({
       printBackground: false,
       pageSize: 'Letter',
-      margins: { marginType: 'none' },
+      // Custom margins matching screenplay format: 1in top/right/bottom, 1.5in left.
+      // 'none' was overriding the CSS @page margins and breaking title page layout.
+      // Values in microns (1in = 25400µm).
+      margins: {
+        marginType: 'custom',
+        top:    25400,   // 1in
+        right:  25400,   // 1in
+        bottom: 25400,   // 1in
+        left:   38100,   // 1.5in
+      },
     });
 
     printWin.close();
@@ -444,6 +470,17 @@ ipcMain.on('window:autosaveChanged', (event, enabled) => {
   if (win) autosaveEnabledByWindow.set(win.id, enabled);
 });
 
+// Sync scene numbers menu checkbox when state is restored from localStorage on startup
+ipcMain.on('window:sceneNumbersChanged', (event, on) => {
+  // Find the Scene Numbers menu item and update its checked state
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  const viewMenu = menu.items.find(i => i.label === 'View');
+  if (!viewMenu) return;
+  const item = viewMenu.submenu.items.find(i => i.label === 'Scene Numbers');
+  if (item) item.checked = on;
+});
+
 // Renderer signals that a save-then-close is complete
 ipcMain.on('window:readyToClose', (event) => {
   const win = getWin(event);
@@ -499,6 +536,29 @@ ipcMain.handle('autosave:listAll', () => {
 
 ipcMain.on('autosave:cleanQuit', (event, { filePath }) => {
   try { deleteAutosave(autosavePathFor(filePath || null)); } catch {}
+});
+
+// ─── Notes sidecar ───────────────────────────────────────────────────────────
+
+ipcMain.handle('notes:write', (event, { filePath, notes }) => {
+  try {
+    fs.writeFileSync(filePath + '.notes.json', JSON.stringify(notes), 'utf8');
+    return true;
+  } catch { return false; }
+});
+
+ipcMain.handle('notes:read', (event, { filePath }) => {
+  try {
+    const raw = fs.readFileSync(filePath + '.notes.json', 'utf8');
+    return JSON.parse(raw);
+  } catch { return null; }
+});
+
+ipcMain.handle('notes:delete', (event, { filePath }) => {
+  try {
+    fs.unlinkSync(filePath + '.notes.json');
+    return true;
+  } catch { return false; }
 });
 
 // ─── App lifecycle ───────────────────────────────────────────────────────────

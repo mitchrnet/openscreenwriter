@@ -89,14 +89,28 @@
     <div id="side-panel">
       <div class="side-panel-tabs">
         <button class="side-panel-tab active" data-tab="scenes">Scenes</button>
-        <button class="side-panel-tab" data-tab="script-info">Script Info</button>
+        <button class="side-panel-tab" data-tab="characters">Characters</button>
+        <button class="side-panel-tab" data-tab="notes">Notes</button>
       </div>
       <div class="side-panel-content" id="tab-scenes">
         <div id="scene-nav-list">
           <div class="scene-nav-empty">No scenes yet</div>
         </div>
       </div>
-      <div class="side-panel-content" id="tab-script-info" style="display:none">
+      <div class="side-panel-content" id="tab-characters" style="display:none">
+        <div class="char-sort-bar">
+          <button class="char-sort-btn active" data-sort="name">Name</button>
+          <button class="char-sort-btn" data-sort="scenes">Scenes ↓</button>
+        </div>
+        <div id="character-list"></div>
+      </div>
+      <div class="side-panel-content" id="tab-notes" style="display:none">
+        <div class="notes-toolbar">
+          <button class="notes-add-btn" id="btn-add-note" title="Add note (Cmd+Shift+N)">+ Add Note</button>
+        </div>
+        <div id="notes-list"></div>
+      </div>
+      <div id="tab-script-info">
         <div class="sp-field">
           <label>Title</label>
           <input type="text" id="sp-title" />
@@ -134,11 +148,13 @@
           <button class="startup-action-btn sp-delete-tp-btn" id="sp-delete-title-page" style="width:100%;color:#c0392b;">Delete Title Page</button>
         </div>
       </div>
+      <div class="side-panel-footer">
+        <button class="sp-footer-btn" id="btn-script-info">Script Info <span class="sp-arrow">&#9652;</span></button>
+      </div>
     </div>
     <div id="editor-pane">
       <div id="editor-paper">
         <div id="wysiwyg-editor"></div>
-        <textarea id="source-editor" style="display:none" spellcheck="false"></textarea>
       </div>
     </div>
   </div>
@@ -162,6 +178,25 @@
     <button class="context-menu-item" data-action="bold"><strong>Bold</strong></button>
     <button class="context-menu-item" data-action="italic"><em>Italic</em></button>
     <button class="context-menu-item" data-action="underline"><u>Underline</u></button>
+    <div class="context-menu-divider"></div>
+    <button class="context-menu-item" data-action="addNote" id="ctx-add-note">Add Note&#8230;</button>
+  </div>
+
+  <!-- Add Note modal -->
+  <div id="add-note-modal" style="display:none">
+    <div id="add-note-card">
+      <div class="startup-logo" style="font-size:13px;letter-spacing:1px;">ADD NOTE</div>
+      <div class="note-color-row">
+        <button class="note-color-btn active" data-note-color="yellow" title="Yellow"></button>
+        <button class="note-color-btn" data-note-color="green"  title="Green"></button>
+        <button class="note-color-btn" data-note-color="pink"   title="Pink"></button>
+      </div>
+      <textarea id="add-note-text" rows="4" placeholder="Note text&#8230;" autocomplete="off" spellcheck="true"></textarea>
+      <div class="add-note-footer">
+        <button class="startup-action-btn" id="add-note-cancel">Cancel</button>
+        <button class="startup-action-btn" id="add-note-submit">Add Note</button>
+      </div>
+    </div>
   </div>
 
   <!-- Title Page Wizard modal -->
