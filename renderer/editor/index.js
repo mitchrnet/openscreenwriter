@@ -826,21 +826,29 @@ p { margin-top: 1em; }
   text-transform: uppercase;
   text-decoration: underline;
   break-after: avoid;   /* keep heading with its first action line */
+  break-before: auto;
 }
-.action { }
+.action {
+  orphans: 2;
+  widows: 2;
+}
 .character {
   margin-left: 2.2in;
   text-transform: uppercase;
-  break-after: avoid;   /* keep character name with dialogue */
+  break-after: avoid;   /* keep character name with dialogue/parenthetical */
+  break-before: avoid-page;
 }
 .dialogue {
   margin-left: 1.0in;
   margin-right: 1.5in;
+  orphans: 2;
+  widows: 2;
 }
 .parenthetical {
   margin-left: 1.6in;
   margin-right: 1.5in;
-  break-after: avoid;
+  break-after: avoid;   /* keep parenthetical with following dialogue */
+  break-before: avoid-page;
 }
 .transition {
   text-align: right;
@@ -870,6 +878,20 @@ p { margin-top: 1em; }
 .tp-contact  { flex: 0 0 auto; font-size: 12pt; line-height: 1.5; }
 .tp-contact-left  { text-align: left;  }
 .tp-contact-right { text-align: right; }
+${document.body.classList.contains('scene-numbers-on') ? `
+/* Scene numbers */
+body { counter-reset: scene-num; }
+.scene-heading { counter-increment: scene-num; position: relative; }
+.scene-heading::before {
+  content: counter(scene-num);
+  position: absolute;
+  left: -1.15in;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12pt;
+  font-weight: normal;
+  text-decoration: none;
+}
+` : ''}
 </style>
 </head>
 <body>
@@ -1386,6 +1408,16 @@ async function init() {
     updateAutosaveToggleBtn();
     window.screenwriterAPI.notifyAutosaveState(checked);
   });
+
+  // Scene numbers — restore from localStorage, then listen for menu toggle
+  const sceneNumbersKey = 'sceneNumbers';
+  function applySceneNumbers(on) {
+    document.body.classList.toggle('scene-numbers-on', on);
+    localStorage.setItem(sceneNumbersKey, String(on));
+    window.screenwriterAPI.notifySceneNumbersState(on);
+  }
+  applySceneNumbers(localStorage.getItem(sceneNumbersKey) === 'true');
+  window.screenwriterAPI.onMenuToggleSceneNumbers((checked) => applySceneNumbers(checked));
 
   // Save-then-close: main process asks us to save before the window closes
   window.screenwriterAPI.onSaveAndClose(async () => {

@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('screenwriterAPI', {
   onMenuInsertLineBreak:  (cb) => ipcRenderer.on('menu:insertLineBreak',  () => cb()),
   onMenuAddNote:          (cb) => ipcRenderer.on('menu:addNote',          () => cb()),
   onMenuAbout:            (cb) => ipcRenderer.on('menu:about',            () => cb()),
+  onMenuToggleSceneNumbers:     (cb) => ipcRenderer.on('menu:toggleSceneNumbers',     (_, checked) => cb(checked)),
   onMenuToggleAutosave:         (cb) => ipcRenderer.on('menu:toggleAutosave',         (_, checked) => cb(checked)),
   onMenuOpenPath:         (cb) => ipcRenderer.on('menu:openPath',         (_, filePath) => cb(filePath)),
 
@@ -49,6 +50,7 @@ contextBridge.exposeInMainWorld('screenwriterAPI', {
 
   // Close-guard: renderer → main state sync
   notifyDirtyState:    (isDirty) => ipcRenderer.send('window:dirtyChanged',   isDirty),
+  notifySceneNumbersState: (on) => ipcRenderer.send('window:sceneNumbersChanged', on),
   notifyAutosaveState: (enabled) => ipcRenderer.send('window:autosaveChanged', enabled),
   notifyReadyToClose:  ()        => ipcRenderer.send('window:readyToClose'),
 
