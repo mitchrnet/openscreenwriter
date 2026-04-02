@@ -28,6 +28,7 @@ import {
   insertPageBreak as insertPageBreakCmd,
   insertLineBreak as insertLineBreakCmd,
 } from './commands.js';
+import { updateCharacterList } from './character-list.js';
 import {
   getTitlePageData, setTitlePageData, hasTitlePage,
   parseTitlePageTokens, titlePageToFountain,
@@ -41,7 +42,6 @@ import { createAutosaveController } from './autosave.js';
 
 // --- DOM references ---
 const wysiwygMount   = document.getElementById('wysiwyg-editor');
-const sourceEditor   = document.getElementById('source-editor');
 const editorPaper    = document.getElementById('editor-paper');
 const statusFilename = document.getElementById('status-filename');
 const statusAutosave = document.getElementById('status-autosave');
@@ -64,12 +64,14 @@ const sceneNavList        = document.getElementById('scene-nav-list');
 const btnSceneNav         = document.getElementById('btn-scene-nav');
 const tabScenes           = document.getElementById('tab-scenes');
 const tabScriptInfo       = document.getElementById('tab-script-info');
+const tabCharacters       = document.getElementById('tab-characters');
+const characterListEl     = document.getElementById('character-list');
 const titlePageWizardEl   = document.getElementById('title-page-wizard');
 const startupModal        = document.getElementById('startup-modal');
 
 // --- State ---
 let editorView          = null;
-let sourceMode          = false;
+let charSortBy          = 'name'; // 'name' | 'scenes'
 let currentFilePath     = null;
 let isDirty             = false;
 let lastSavedDoc        = null;
@@ -111,7 +113,6 @@ function createEditor(doc) {
         saveAs: saveFileAs,
         open: openFile,
         exportFdx: exportFdx,
-        toggleSourceMode: toggleSourceMode,
         resetZoom: () => {
           zoomLevel = 1.0;
           editorPaper.style.zoom = 1;
@@ -145,9 +146,11 @@ function createEditor(doc) {
         // Trigger debounced autosave on every content change
         if (autosave && !isClean) autosave.notifyChange();
 
-        // Scene nav
+        // Side panel — update active tab
         if (sidePanel.classList.contains('is-open')) {
-          updateSceneNav();
+          const activeTab = getActiveTab();
+          if (activeTab === 'scenes') updateSceneNav();
+          else if (activeTab === 'characters') updateCharactersPanel();
         }
 
         updateWordSceneCount(newState.doc);
@@ -190,7 +193,7 @@ function createEditor(doc) {
 // ============================================================
 
 function updateElementIndicator() {
-  if (!editorView || sourceMode) return;
+  if (!editorView) return;
   const { $from } = editorView.state.selection;
   const type = $from.parent.type.name;
   elementPill.textContent = (ELEMENT_LABELS[type] || 'Action') + ' \u25BE';
@@ -213,7 +216,7 @@ function updateWordSceneCount(doc) {
 }
 
 function updateFormatIndicators() {
-  if (!editorView || sourceMode) {
+  if (!editorView) {
     btnBold.classList.remove('active');
     btnItalic.classList.remove('active');
     btnUnderline.classList.remove('active');
@@ -242,7 +245,6 @@ function updateFormatIndicators() {
 // ============================================================
 
 function toggleElementDropdown() {
-  if (sourceMode) return;
   const visible = elementDropdown.style.display !== 'none';
   elementDropdown.style.display = visible ? 'none' : 'block';
 }
@@ -256,7 +258,7 @@ function hideElementDropdown() {
 // ============================================================
 
 function updateSceneNav() {
-  if (!editorView || sourceMode) return;
+  if (!editorView) return;
   const doc = editorView.state.doc;
   sceneNavList.innerHTML = '';
 
@@ -293,11 +295,48 @@ function updateSceneNav() {
   }
 }
 
+function updateCharactersPanel() {
+  if (!editorView) return;
+  updateCharacterList(characterListEl, editorView.state.doc, charSortBy, editorView);
+}
+
+function getActiveTab() {
+  const active = sidePanel.querySelector('.side-panel-tab.active');
+  return active ? active.dataset.tab : 'scenes';
+}
+
 function toggleSidePanel() {
   const visible = sidePanel.classList.contains('is-open');
   sidePanel.classList.toggle('is-open', !visible);
   btnSceneNav.classList.toggle('active', !visible);
-  if (!visible) updateSceneNav();
+  if (!visible) {
+    updateSceneNav();
+    updateCharactersPanel();
+  }
+}
+
+function toggleCharacterPanel() {
+  const visible = sidePanel.classList.contains('is-open');
+  const onCharTab = getActiveTab() === 'characters';
+
+  if (visible && onCharTab) {
+    // Already open on Characters tab — close the panel
+    sidePanel.classList.remove('is-open');
+    btnSceneNav.classList.remove('active');
+    return;
+  }
+
+  // Open the panel (if not already) and switch to Characters tab
+  sidePanel.classList.add('is-open');
+  btnSceneNav.classList.add('active');
+
+  sidePanel.querySelectorAll('.side-panel-tab').forEach(t => t.classList.remove('active'));
+  sidePanel.querySelector('[data-tab="characters"]').classList.add('active');
+  tabScenes.style.display     = 'none';
+  tabCharacters.style.display = 'block';
+  tabScriptInfo.style.display = 'none';
+
+  updateCharactersPanel();
 }
 
 // ============================================================
@@ -359,7 +398,7 @@ async function handleContextAction(action) {
 }
 
 // ============================================================
-// Source mode
+// File text helpers
 // ============================================================
 
 function getCurrentFountainText() {
@@ -367,40 +406,11 @@ function getCurrentFountainText() {
   return docToFountain(editorView.state.doc, getTitlePageData());
 }
 
-function toggleSourceMode() {
-  sourceMode = !sourceMode;
-
-  if (sourceMode) {
-    const text = getCurrentFountainText();
-    wysiwygMount.style.display = 'none';
-    sourceEditor.style.display = 'block';
-    sourceEditor.value = text;
-    sourceEditor.focus();
-  } else {
-    const text = sourceEditor.value;
-    sourceEditor.style.display = 'none';
-    wysiwygMount.style.display = 'block';
-
-    const { doc, titlePageData } = fountainToDoc(text, screenplaySchema);
-    setTitlePageData(titlePageData);
-    createEditor(doc);
-
-    refreshTitlePageInEditor(editorPaper);
-    if (editorView) editorView.dispatch(editorView.state.tr);
-    syncSidePanelFromData();
-    editorView.focus();
-    if (sidePanel.classList.contains('is-open')) updateSceneNav();
-  }
-
-  statusFilename.classList.toggle('source-mode-active', sourceMode);
-}
-
 // ============================================================
 // File operations
 // ============================================================
 
 function getFountainText() {
-  if (sourceMode) return sourceEditor.value;
   return getCurrentFountainText();
 }
 
@@ -411,14 +421,6 @@ async function openFile(preloaded = null) {
   // Always dismiss the startup modal when a file is opened, regardless of how
   // the open was triggered (menu, file association, Cmd+O while modal is up, etc.)
   startupModal.style.display = 'none';
-
-  // Exit source mode if active
-  if (sourceMode) {
-    sourceMode = false;
-    sourceEditor.style.display = 'none';
-    wysiwygMount.style.display = 'block';
-    statusFilename.classList.remove('source-mode-active');
-  }
 
   const isFdx = result.filePath.toLowerCase().endsWith('.fdx');
   let fountainText = isFdx ? fdxToFountain(result.content) : result.content;
@@ -917,7 +919,6 @@ async function init() {
 
   // --- Context menu ---
   wysiwygMount.addEventListener('contextmenu', e => {
-    if (sourceMode) return;
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY);
   });
@@ -937,7 +938,19 @@ async function init() {
       tab.classList.add('active');
       const target = tab.dataset.tab;
       tabScenes.style.display     = target === 'scenes'      ? 'block' : 'none';
-      tabScriptInfo.style.display = target === 'script-info'  ? 'block' : 'none';
+      tabCharacters.style.display = target === 'characters'  ? 'block' : 'none';
+      tabScriptInfo.style.display = target === 'script-info' ? 'block' : 'none';
+      if (target === 'characters') updateCharactersPanel();
+    });
+  });
+
+  // Character list sort buttons
+  tabCharacters.querySelectorAll('.char-sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      tabCharacters.querySelectorAll('.char-sort-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      charSortBy = btn.dataset.sort;
+      updateCharactersPanel();
     });
   });
 
@@ -1017,7 +1030,6 @@ async function init() {
 
   // --- Focus lock — clicking paper margins refocuses ProseMirror ---
   document.getElementById('editor-pane').addEventListener('mousedown', e => {
-    if (sourceMode) return;
     if (sidePanel.contains(e.target)) return;
     if (editorView && !editorView.dom.contains(e.target)) {
       // Don't prevent default on title page container clicks
@@ -1032,12 +1044,6 @@ async function init() {
     }
   });
 
-  // Source editor dirty tracking + autosave trigger
-  sourceEditor.addEventListener('input', () => {
-    setDirty(true);
-    if (autosave) autosave.notifyChange();
-  });
-
   // --- Menu commands from main process ---
   window.screenwriterAPI.onMenuOpen(openFile);
   window.screenwriterAPI.onMenuSave(saveFile);
@@ -1045,7 +1051,7 @@ async function init() {
   window.screenwriterAPI.onMenuExportFdx(exportFdx);
   window.screenwriterAPI.onMenuExportPdf(exportPdf);
   window.screenwriterAPI.onMenuPrint(printScript);
-  window.screenwriterAPI.onMenuToggleSourceMode(toggleSourceMode);
+  window.screenwriterAPI.onMenuToggleSidePanel(toggleSidePanel);
   window.screenwriterAPI.onMenuInsertTitlePage(showTitlePageWizard);
   window.screenwriterAPI.onMenuInsertPageBreak(() => {
     if (editorView) {

@@ -33,12 +33,12 @@ contextBridge.exposeInMainWorld('screenwriterAPI', {
   onMenuExportFdx:        (cb) => ipcRenderer.on('menu:exportFdx',        () => cb()),
   onMenuExportPdf:        (cb) => ipcRenderer.on('menu:exportPdf',        () => cb()),
   onMenuPrint:            (cb) => ipcRenderer.on('menu:print',             () => cb()),
-  onMenuToggleSourceMode: (cb) => ipcRenderer.on('menu:toggleSourceMode', () => cb()),
+  onMenuToggleSidePanel:        (cb) => ipcRenderer.on('menu:toggleSidePanel',        () => cb()),
   onMenuInsertTitlePage:  (cb) => ipcRenderer.on('menu:insertTitlePage',  () => cb()),
   onMenuInsertPageBreak:  (cb) => ipcRenderer.on('menu:insertPageBreak',  () => cb()),
   onMenuInsertLineBreak:  (cb) => ipcRenderer.on('menu:insertLineBreak',  () => cb()),
   onMenuAbout:            (cb) => ipcRenderer.on('menu:about',            () => cb()),
-  onMenuToggleAutosave:   (cb) => ipcRenderer.on('menu:toggleAutosave',   (_, checked) => cb(checked)),
+  onMenuToggleAutosave:         (cb) => ipcRenderer.on('menu:toggleAutosave',         (_, checked) => cb(checked)),
   onMenuOpenPath:         (cb) => ipcRenderer.on('menu:openPath',         (_, filePath) => cb(filePath)),
 
   // Close-guard: renderer → main state sync
