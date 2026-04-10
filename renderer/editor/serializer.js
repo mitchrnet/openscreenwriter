@@ -129,17 +129,57 @@ export function fountainToDoc(text, schema) {
 
   // Build ProseMirror nodes from body tokens (skip title_page and empty)
   const nodes = [];
-  for (const token of tokens) {
-    if (token.type === 'title_page') continue;
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
 
-    if (token.type === 'empty') {
-      // Empty lines don't become nodes — they're structural separators in Fountain
-      // But we do need them to preserve blank lines in the editor
-      continue;
-    }
+    if (token.type === 'title_page') continue;
+    if (token.type === 'empty') continue;
 
     if (token.type === 'page_break') {
       nodes.push(schema.node('page_break'));
+      continue;
+    }
+
+    // Dual dialogue: when a character token has dual:true, retroactively
+    // wrap the previous character+dialogue sequence and this one in a
+    // dual_dialogue container.
+    if (token.type === 'character' && token.dual) {
+      // Pop previous character+dialogue/parenthetical nodes from the end of `nodes`
+      const leftNodes = [];
+      while (nodes.length > 0) {
+        const last = nodes[nodes.length - 1];
+        const t = last.type.name;
+        if (t === 'character' || t === 'dialogue' || t === 'parenthetical') {
+          leftNodes.unshift(nodes.pop());
+        } else {
+          break;
+        }
+      }
+
+      // Build right col: this character + its following dialogue/parenthetical tokens
+      const rightNodes = [];
+      const charText = createTextNodes(token.text, schema);
+      rightNodes.push(schema.node('character', null, charText.length ? charText : undefined));
+      while (i + 1 < tokens.length) {
+        const next = tokens[i + 1];
+        if (next.type === 'dialogue' || next.type === 'parenthetical') {
+          const tnodes = createTextNodes(next.text, schema);
+          rightNodes.push(schema.node(next.type, null, tnodes.length ? tnodes : undefined));
+          i++;
+        } else {
+          break;
+        }
+      }
+
+      if (leftNodes.length > 0 && rightNodes.length > 0) {
+        const leftCol  = schema.node('dual_col', null, leftNodes);
+        const rightCol = schema.node('dual_col', null, rightNodes);
+        nodes.push(schema.node('dual_dialogue', null, [leftCol, rightCol]));
+      } else {
+        // Malformed — fall back to pushing nodes without dual grouping
+        nodes.push(...leftNodes);
+        nodes.push(...rightNodes);
+      }
       continue;
     }
 
@@ -215,6 +255,33 @@ export function docToFountain(doc, titlePageData) {
     if (type === 'page_break') {
       if (prevType !== null) lines.push('');
       lines.push('===');
+      lines.push('');
+      prevType = type;
+      return;
+    }
+
+    // Dual dialogue: serialize left col normally, right col with ^ on character name
+    if (type === 'dual_dialogue') {
+      if (prevType !== null && prevType !== 'page_break') lines.push('');
+      node.forEach((col, _colOffset, colIndex) => {
+        const isRight = colIndex === 1;
+        col.forEach((block, _blockOffset, blockIndex) => {
+          const bt = block.type.name;
+          const blockText = serializeInline(block);
+          if (bt === 'character') {
+            // Right column character: add blank line before (required by Fountain parser)
+            // so the `^` line is preceded by an empty line.
+            if (isRight) {
+              lines.push('');
+              lines.push(blockText.toUpperCase() + ' ^');
+            } else {
+              lines.push(blockText.toUpperCase());
+            }
+          } else {
+            lines.push(blockText);
+          }
+        });
+      });
       lines.push('');
       prevType = type;
       return;

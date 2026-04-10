@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('screenwriterAPI', {
   onMenuInsertPageBreak:  (cb) => ipcRenderer.on('menu:insertPageBreak',  () => cb()),
   onMenuInsertLineBreak:  (cb) => ipcRenderer.on('menu:insertLineBreak',  () => cb()),
   onMenuAddNote:          (cb) => ipcRenderer.on('menu:addNote',          () => cb()),
+  onMenuWrapDualDialogue: (cb) => ipcRenderer.on('menu:wrapDualDialogue', () => cb()),
   onMenuAbout:            (cb) => ipcRenderer.on('menu:about',            () => cb()),
   onMenuToggleSceneNumbers:     (cb) => ipcRenderer.on('menu:toggleSceneNumbers',     (_, checked) => cb(checked)),
   onMenuToggleAutosave:         (cb) => ipcRenderer.on('menu:toggleAutosave',         (_, checked) => cb(checked)),

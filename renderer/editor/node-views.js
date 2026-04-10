@@ -90,6 +90,23 @@ class ScreenplayBlockNodeView {
 }
 
 /**
+ * Simple NodeView for dual_dialogue and dual_col — just DOM containers,
+ * no ResizeObserver needed (pagination handles the outer dual_dialogue block
+ * via normal flow height).
+ */
+class ContainerNodeView {
+  constructor(cssClass, dataType) {
+    this.dom = document.createElement('div');
+    this.dom.className = cssClass;
+    this.dom.dataset.type = dataType;
+    this.contentDOM = this.dom;
+  }
+  update(node) {
+    return node.type.name === this.dom.dataset.type;
+  }
+}
+
+/**
  * Build the nodeViews map for the EditorView constructor.
  * @param {Schema}   schema  — ProseMirror schema
  * @param {Function} getZoom — () => number, returns current CSS zoom level
@@ -101,5 +118,8 @@ export function buildNodeViews(schema, getZoom) {
     nodeViews[typeName] = (node, view, getPos) =>
       new ScreenplayBlockNodeView(node, view, getPos, getZoom);
   }
+  // Dual dialogue containers — lightweight, no height tracking needed
+  nodeViews['dual_dialogue'] = () => new ContainerNodeView('ws-block ws-dual-dialogue', 'dual_dialogue');
+  nodeViews['dual_col']      = () => new ContainerNodeView('ws-dual-col', 'dual_col');
   return nodeViews;
 }

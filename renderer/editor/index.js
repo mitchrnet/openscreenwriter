@@ -27,8 +27,10 @@ import {
   setBlockType as setBlockTypeCmd,
   insertPageBreak as insertPageBreakCmd,
   insertLineBreak as insertLineBreakCmd,
+  wrapInDualDialogue,
 } from './commands.js';
 import { updateCharacterList } from './character-list.js';
+import { updateStatsPanel } from './stats.js';
 import {
   createNotesPlugin, notesPluginKey,
   addNote as addNoteToEditor, deleteNote as deleteNoteFromEditor,
@@ -73,6 +75,8 @@ const tabCharacters       = document.getElementById('tab-characters');
 const characterListEl     = document.getElementById('character-list');
 const tabNotes            = document.getElementById('tab-notes');
 const notesListEl         = document.getElementById('notes-list');
+const tabStats            = document.getElementById('tab-stats');
+const statsPanelEl        = document.getElementById('stats-panel');
 const addNoteModal        = document.getElementById('add-note-modal');
 const titlePageWizardEl   = document.getElementById('title-page-wizard');
 const startupModal        = document.getElementById('startup-modal');
@@ -162,6 +166,7 @@ function createEditor(doc) {
           if (activeTab === 'scenes') updateSceneNav();
           else if (activeTab === 'characters') updateCharactersPanel();
           else if (activeTab === 'notes') updateNotesPanel();
+          else if (activeTab === 'stats') updateStatsPanel(statsPanelEl, newState.doc, currentPageCount);
         }
 
         updateWordSceneCount(newState.doc);
@@ -518,6 +523,7 @@ function toggleCharacterPanel() {
   tabScenes.style.display     = 'none';
   tabCharacters.style.display = 'block';
   tabNotes.style.display      = 'none';
+  tabStats.style.display      = 'none';
 
   updateCharactersPanel();
 }
@@ -756,6 +762,20 @@ function generatePrintHtml() {
       return;
     }
     if (type === 'title_page' || type === 'title_page_block') return; // skip title page nodes
+    if (type === 'dual_dialogue') {
+      body += '<div class="dual-dialogue">';
+      node.forEach(col => {
+        body += '<div class="dual-col">';
+        col.forEach(block => {
+          const cls = blockClass[block.type.name] || 'action';
+          const inner = inlineMarksToHtml(block) || '&nbsp;';
+          body += `<p class="${cls}">${inner}</p>\n`;
+        });
+        body += '</div>';
+      });
+      body += '</div>\n';
+      return;
+    }
     const cls = blockClass[type] || 'action';
     const inner = inlineMarksToHtml(node) || '&nbsp;';
     body += `<p class="${cls}">${inner}</p>\n`;
@@ -860,6 +880,13 @@ p { margin-top: 1em; }
 
 /* Manual page break */
 .page-break { page-break-before: always; }
+
+/* Dual dialogue */
+.dual-dialogue { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5em; margin-top: 1em; }
+.dual-col p { margin-top: 0; }
+.dual-col .character { margin-left: 1.7in; }
+.dual-col .dialogue  { margin-left: 0.5in; margin-right: 0; }
+.dual-col .parenthetical { margin-left: 1.0in; margin-right: 0; }
 
 /* Title page layout — flexbox so dimensions are reliable in print context */
 .title-page {
@@ -1167,8 +1194,10 @@ async function init() {
       tabScenes.style.display     = target === 'scenes'     ? 'block' : 'none';
       tabCharacters.style.display = target === 'characters' ? 'block' : 'none';
       tabNotes.style.display      = target === 'notes'      ? 'block' : 'none';
+      tabStats.style.display      = target === 'stats'      ? 'block' : 'none';
       if (target === 'characters') updateCharactersPanel();
       if (target === 'notes') updateNotesPanel();
+      if (target === 'stats') updateStatsPanel(statsPanelEl, editorView.state.doc, currentPageCount);
     });
   });
 
@@ -1307,6 +1336,12 @@ async function init() {
     }
   });
   window.screenwriterAPI.onMenuAddNote(() => openAddNoteModal());
+  window.screenwriterAPI.onMenuWrapDualDialogue(() => {
+    if (editorView) {
+      wrapInDualDialogue(editorView.state, editorView.dispatch);
+      editorView.focus();
+    }
+  });
 
   // --- Notes panel button ---
   document.getElementById('btn-add-note').addEventListener('mousedown', e => e.preventDefault());
