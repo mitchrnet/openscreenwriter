@@ -224,6 +224,8 @@ function buildMenu() {
         { label: 'Line Break', click: send('menu:insertLineBreak') },
         { type: 'separator' },
         { label: 'Add Note...', accelerator: 'CmdOrCtrl+Shift+N', click: send('menu:addNote') },
+        { type: 'separator' },
+        { label: 'Dual Dialogue', accelerator: 'CmdOrCtrl+Shift+D', click: send('menu:wrapDualDialogue') },
       ],
     },
     {

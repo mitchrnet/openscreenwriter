@@ -55,6 +55,26 @@ export const screenplaySchema = new Schema({
       parseDOM: [{ tag: 'div[data-type="page_break"]' }],
     },
 
+    // -- Dual dialogue --
+    // Container that holds two side-by-side dialogue columns.
+    dual_dialogue: {
+      content: 'dual_col dual_col',
+      group: 'block',
+      toDOM() {
+        return ['div', { class: 'ws-block ws-dual-dialogue', 'data-type': 'dual_dialogue' }, 0];
+      },
+      parseDOM: [{ tag: 'div[data-type="dual_dialogue"]' }],
+    },
+
+    // One column inside a dual_dialogue container.
+    dual_col: {
+      content: '(character | parenthetical | dialogue)+',
+      toDOM() {
+        return ['div', { class: 'ws-dual-col', 'data-type': 'dual_col' }, 0];
+      },
+      parseDOM: [{ tag: 'div[data-type="dual_col"]' }],
+    },
+
     // -- Inline nodes --
     text: {
       group: 'inline',

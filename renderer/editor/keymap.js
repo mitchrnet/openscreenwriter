@@ -10,6 +10,7 @@ import {
   cycleBlockType,
   cycleBlockTypeBackward,
   backspaceGuard,
+  wrapInDualDialogue,
 } from './commands.js';
 
 /**
@@ -36,6 +37,9 @@ export function createScreenplayKeymap(schema, callbacks = {}) {
     'Mod-z': undo,
     'Mod-y': redo,
     'Mod-Shift-z': redo,
+
+    // Dual dialogue
+    'Mod-Shift-d': wrapInDualDialogue,
   };
 
   // File operations — bound to callbacks if provided

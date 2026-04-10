@@ -473,3 +473,141 @@ describe('Fountain → doc → Fountain roundtrip', () => {
   });
 
 });
+
+// ─── Dual dialogue ─────────────────────────────────────────────────────────────
+
+describe('dual dialogue', () => {
+  it('parses dual dialogue from Fountain ^ marker', () => {
+    const input = [
+      'BRICK',
+      'I love you.',
+      '',
+      'STEEL ^',
+      'I love you too.',
+    ].join('\n');
+
+    const { doc } = fountainToDoc(input, schema);
+    const types = nodeTypes(doc);
+    expect(types).toContain('dual_dialogue');
+    expect(types).not.toContain('character');
+    expect(types).not.toContain('dialogue');
+  });
+
+  it('dual_dialogue has two dual_col children', () => {
+    const input = [
+      'BRICK',
+      'Left line.',
+      '',
+      'STEEL ^',
+      'Right line.',
+    ].join('\n');
+
+    const { doc } = fountainToDoc(input, schema);
+    let dualNode = null;
+    doc.forEach(n => { if (n.type.name === 'dual_dialogue') dualNode = n; });
+    expect(dualNode).not.toBeNull();
+    expect(dualNode.childCount).toBe(2);
+    expect(dualNode.child(0).type.name).toBe('dual_col');
+    expect(dualNode.child(1).type.name).toBe('dual_col');
+  });
+
+  it('left col has correct character and dialogue', () => {
+    const input = [
+      'BRICK',
+      'Left line.',
+      '',
+      'STEEL ^',
+      'Right line.',
+    ].join('\n');
+
+    const { doc } = fountainToDoc(input, schema);
+    let dualNode = null;
+    doc.forEach(n => { if (n.type.name === 'dual_dialogue') dualNode = n; });
+    const leftCol = dualNode.child(0);
+    expect(leftCol.child(0).type.name).toBe('character');
+    expect(leftCol.child(0).textContent).toBe('BRICK');
+    expect(leftCol.child(1).type.name).toBe('dialogue');
+    expect(leftCol.child(1).textContent).toBe('Left line.');
+  });
+
+  it('right col has correct character and dialogue', () => {
+    const input = [
+      'BRICK',
+      'Left line.',
+      '',
+      'STEEL ^',
+      'Right line.',
+    ].join('\n');
+
+    const { doc } = fountainToDoc(input, schema);
+    let dualNode = null;
+    doc.forEach(n => { if (n.type.name === 'dual_dialogue') dualNode = n; });
+    const rightCol = dualNode.child(1);
+    expect(rightCol.child(0).type.name).toBe('character');
+    expect(rightCol.child(0).textContent).toBe('STEEL');
+    expect(rightCol.child(1).type.name).toBe('dialogue');
+    expect(rightCol.child(1).textContent).toBe('Right line.');
+  });
+
+  it('serializes dual_dialogue back to Fountain with ^ on right character', () => {
+    const input = [
+      'BRICK',
+      'Left line.',
+      '',
+      'STEEL ^',
+      'Right line.',
+    ].join('\n');
+
+    const { doc, titlePageData } = fountainToDoc(input, schema);
+    const output = docToFountain(doc, titlePageData);
+    expect(output).toContain('BRICK');
+    expect(output).toContain('Left line.');
+    expect(output).toContain('STEEL ^');
+    expect(output).toContain('Right line.');
+  });
+
+  it('dual dialogue roundtrip: parse → serialize → re-parse', () => {
+    const input = [
+      'INT. OFFICE - DAY',
+      '',
+      'ALICE',
+      'First speaker.',
+      '',
+      'BOB ^',
+      'Second speaker.',
+      '',
+      'They stare at each other.',
+    ].join('\n');
+
+    const { doc: doc1, titlePageData } = fountainToDoc(input, schema);
+    const output = docToFountain(doc1, titlePageData);
+    const { doc: doc2 } = fountainToDoc(output, schema);
+
+    const types1 = nodeTypes(doc1);
+    const types2 = nodeTypes(doc2);
+    expect(types1).toContain('dual_dialogue');
+    expect(types2).toContain('dual_dialogue');
+    // Both docs have same top-level structure
+    expect(types1).toEqual(types2);
+  });
+
+  it('dual dialogue with parenthetical in left column', () => {
+    const input = [
+      'ALICE',
+      '(whispering)',
+      'Come here.',
+      '',
+      'BOB ^',
+      'What?',
+    ].join('\n');
+
+    const { doc } = fountainToDoc(input, schema);
+    let dualNode = null;
+    doc.forEach(n => { if (n.type.name === 'dual_dialogue') dualNode = n; });
+    expect(dualNode).not.toBeNull();
+    const leftCol = dualNode.child(0);
+    const leftTypes = [];
+    leftCol.forEach(n => leftTypes.push(n.type.name));
+    expect(leftTypes).toContain('parenthetical');
+  });
+});

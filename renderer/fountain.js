@@ -175,25 +175,30 @@ function parseBody(lines, lineOffset) {
 
     // ---- Forced character: @text ----
     if (trimmed.startsWith('@')) {
-      tokens.push({
-        type: 'character',
-        text: stripNotes(trimmed.slice(1).trim()),
-        lineIndex: absIndex,
-      });
+      const raw = trimmed.slice(1).trim();
+      const isDual = raw.endsWith('^');
+      const text   = stripNotes(isDual ? raw.slice(0, -1).trim() : raw);
+      tokens.push({ type: 'character', text, lineIndex: absIndex, ...(isDual && { dual: true }) });
       continue;
     }
 
     // ---- Auto character: ALL CAPS + blank prev + non-blank next ----
-    if (
-      trimmed.length > 0 &&
-      trimmed === trimmed.toUpperCase() &&
-      /[A-Z]/.test(trimmed) &&
-      !trimmed.startsWith('INT') && !trimmed.startsWith('EXT') && // don't steal scene headings
-      (prev === '' || prev === null) &&
-      next !== null && next !== ''
-    ) {
-      tokens.push({ type: 'character', text: stripNotes(trimmed), lineIndex: absIndex });
-      continue;
+    // A trailing ^ marks the second speaker in a dual dialogue pair.
+    {
+      const hasCaret = trimmed.endsWith('^');
+      const candidate = hasCaret ? trimmed.slice(0, -1).trim() : trimmed;
+      if (
+        candidate.length > 0 &&
+        candidate === candidate.toUpperCase() &&
+        /[A-Z]/.test(candidate) &&
+        !candidate.startsWith('INT') && !candidate.startsWith('EXT') &&
+        (prev === '' || prev === null) &&
+        next !== null && next !== ''
+      ) {
+        const text = stripNotes(candidate);
+        tokens.push({ type: 'character', text, lineIndex: absIndex, ...(hasCaret && { dual: true }) });
+        continue;
+      }
     }
 
     // ---- Dialogue context: lines immediately after character/dialogue/parenthetical ----
