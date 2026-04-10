@@ -249,6 +249,25 @@ function buildMenu() {
             if (win) win.webContents.send('menu:toggleAutosave', menuItem.checked);
           },
         },
+        {
+          label: 'Typewriter Scroll',
+          type: 'checkbox',
+          checked: false,
+          click: (menuItem) => {
+            const win = getFocusedWin();
+            if (win) win.webContents.send('menu:toggleTypewriterScroll', menuItem.checked);
+          },
+        },
+        {
+          label: 'Focus Mode',
+          type: 'checkbox',
+          accelerator: 'CmdOrCtrl+Shift+F',
+          checked: false,
+          click: (menuItem) => {
+            const win = getFocusedWin();
+            if (win) win.webContents.send('menu:toggleFocusMode', menuItem.checked);
+          },
+        },
         { type: 'separator' },
         { role: 'reload' },
         { role: 'forceReload' },
@@ -472,12 +491,29 @@ ipcMain.on('window:autosaveChanged', (event, enabled) => {
 
 // Sync scene numbers menu checkbox when state is restored from localStorage on startup
 ipcMain.on('window:sceneNumbersChanged', (event, on) => {
-  // Find the Scene Numbers menu item and update its checked state
   const menu = Menu.getApplicationMenu();
   if (!menu) return;
   const viewMenu = menu.items.find(i => i.label === 'View');
   if (!viewMenu) return;
   const item = viewMenu.submenu.items.find(i => i.label === 'Scene Numbers');
+  if (item) item.checked = on;
+});
+
+ipcMain.on('window:typewriterScrollChanged', (event, on) => {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  const viewMenu = menu.items.find(i => i.label === 'View');
+  if (!viewMenu) return;
+  const item = viewMenu.submenu.items.find(i => i.label === 'Typewriter Scroll');
+  if (item) item.checked = on;
+});
+
+ipcMain.on('window:focusModeChanged', (event, on) => {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  const viewMenu = menu.items.find(i => i.label === 'View');
+  if (!viewMenu) return;
+  const item = viewMenu.submenu.items.find(i => i.label === 'Focus Mode');
   if (item) item.checked = on;
 });
 

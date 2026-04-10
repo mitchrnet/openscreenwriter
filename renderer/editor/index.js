@@ -76,6 +76,7 @@ const notesListEl         = document.getElementById('notes-list');
 const addNoteModal        = document.getElementById('add-note-modal');
 const titlePageWizardEl   = document.getElementById('title-page-wizard');
 const startupModal        = document.getElementById('startup-modal');
+const editorPane          = document.getElementById('editor-pane');
 
 // --- State ---
 let editorView          = null;
@@ -86,6 +87,8 @@ let lastSavedDoc        = null;
 let zoomLevel           = 1.0;
 let currentPageCount    = 0;
 let autosave            = null;  // autosave controller, set in init()
+let typewriterScrollEnabled = false;
+let focusModeEnabled        = false;
 
 // ============================================================
 // Editor creation
@@ -125,9 +128,15 @@ function createEditor(doc) {
           zoomLevel = 1.0;
           editorPaper.style.zoom = 1;
         },
-        find:        () => openFindBar(false),
-        findReplace: () => openFindBar(true),
-        addNote:     () => openAddNoteModal(),
+        find:            () => openFindBar(false),
+        findReplace:     () => openFindBar(true),
+        addNote:         () => openAddNoteModal(),
+        toggleFocusMode: () => {
+          focusModeEnabled = !focusModeEnabled;
+          document.body.classList.toggle('focus-mode', focusModeEnabled);
+          localStorage.setItem('focusMode', String(focusModeEnabled));
+          window.screenwriterAPI.notifyFocusModeState(focusModeEnabled);
+        },
       }),
       keymap(baseKeymap),
       paginationPlugin,
@@ -165,6 +174,18 @@ function createEditor(doc) {
         }
 
         updateWordSceneCount(newState.doc);
+      }
+
+      // Typewriter scroll — keep cursor at ~40% of the editor pane
+      if (typewriterScrollEnabled && (tr.docChanged || tr.selectionSet)) {
+        const { head } = newState.selection;
+        const coords = editorView.coordsAtPos(head);
+        const paneRect = editorPane.getBoundingClientRect();
+        const target = paneRect.top + paneRect.height * 0.4;
+        const delta = coords.top - target;
+        if (Math.abs(delta) > 50) {
+          editorPane.scrollTop += delta;
+        }
       }
     },
 
@@ -1418,6 +1439,34 @@ async function init() {
   }
   applySceneNumbers(localStorage.getItem(sceneNumbersKey) === 'true');
   window.screenwriterAPI.onMenuToggleSceneNumbers((checked) => applySceneNumbers(checked));
+
+  // Typewriter scroll — restore from localStorage, then listen for menu toggle
+  typewriterScrollEnabled = localStorage.getItem('typewriterScroll') === 'true';
+  window.screenwriterAPI.notifyTypewriterScrollState(typewriterScrollEnabled);
+  window.screenwriterAPI.onMenuToggleTypewriterScroll((checked) => {
+    typewriterScrollEnabled = checked;
+    localStorage.setItem('typewriterScroll', String(checked));
+  });
+
+  // Focus mode — restore from localStorage, then listen for menu toggle
+  function setFocusMode(on) {
+    focusModeEnabled = on;
+    document.body.classList.toggle('focus-mode', on);
+    localStorage.setItem('focusMode', String(on));
+    window.screenwriterAPI.notifyFocusModeState(on);
+  }
+  setFocusMode(localStorage.getItem('focusMode') === 'true');
+  window.screenwriterAPI.onMenuToggleFocusMode((checked) => setFocusMode(checked));
+
+  // Escape exits focus mode (only when find bar is not open)
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && focusModeEnabled) {
+      const findBar = document.getElementById('find-bar');
+      if (!findBar || findBar.style.display === 'none') {
+        setFocusMode(false);
+      }
+    }
+  });
 
   // Save-then-close: main process asks us to save before the window closes
   window.screenwriterAPI.onSaveAndClose(async () => {

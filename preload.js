@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('screenwriterAPI', {
   onMenuAbout:            (cb) => ipcRenderer.on('menu:about',            () => cb()),
   onMenuToggleSceneNumbers:     (cb) => ipcRenderer.on('menu:toggleSceneNumbers',     (_, checked) => cb(checked)),
   onMenuToggleAutosave:         (cb) => ipcRenderer.on('menu:toggleAutosave',         (_, checked) => cb(checked)),
+  onMenuToggleTypewriterScroll: (cb) => ipcRenderer.on('menu:toggleTypewriterScroll', (_, checked) => cb(checked)),
+  onMenuToggleFocusMode:        (cb) => ipcRenderer.on('menu:toggleFocusMode',        (_, checked) => cb(checked)),
   onMenuOpenPath:         (cb) => ipcRenderer.on('menu:openPath',         (_, filePath) => cb(filePath)),
 
   // Notes sidecar (stored alongside .fountain file as <path>.notes.json)
@@ -50,8 +52,10 @@ contextBridge.exposeInMainWorld('screenwriterAPI', {
 
   // Close-guard: renderer → main state sync
   notifyDirtyState:    (isDirty) => ipcRenderer.send('window:dirtyChanged',   isDirty),
-  notifySceneNumbersState: (on) => ipcRenderer.send('window:sceneNumbersChanged', on),
+  notifySceneNumbersState:     (on) => ipcRenderer.send('window:sceneNumbersChanged', on),
   notifyAutosaveState: (enabled) => ipcRenderer.send('window:autosaveChanged', enabled),
+  notifyTypewriterScrollState: (on) => ipcRenderer.send('window:typewriterScrollChanged', on),
+  notifyFocusModeState:        (on) => ipcRenderer.send('window:focusModeChanged', on),
   notifyReadyToClose:  ()        => ipcRenderer.send('window:readyToClose'),
 
   // Close-guard: main → renderer command

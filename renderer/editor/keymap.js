@@ -63,5 +63,8 @@ export function createScreenplayKeymap(schema, callbacks = {}) {
   if (callbacks.addNote) {
     bindings['Mod-Shift-n'] = () => { callbacks.addNote(); return true; };
   }
+  if (callbacks.toggleFocusMode) {
+    bindings['Mod-Shift-f'] = () => { callbacks.toggleFocusMode(); return true; };
+  }
   return keymap(bindings);
 }
