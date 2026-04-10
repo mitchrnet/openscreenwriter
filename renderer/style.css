@@ -1646,3 +1646,20 @@ body[data-theme="light"] .note-item:hover {
     display: none !important;
   }
 }
+
+/* ---- Focus Mode ---- */
+body.focus-mode #toolbar {
+  display: none;
+}
+
+body.focus-mode #side-panel {
+  display: none;
+}
+
+body.focus-mode #editor-container {
+  /* Editor expands to fill space left by hidden toolbar/panel */
+}
+
+body.focus-mode #editor-pane {
+  padding-top: 3rem;
+}
